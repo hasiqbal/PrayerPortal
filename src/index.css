@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── Backgrounds ── */
+    --background: 120 8% 96%;          /* warm grey-green page bg */
+    --foreground: 150 25% 10%;         /* deep forest text */
+
+    --card: 0 0% 100%;
+    --card-foreground: 150 25% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 150 25% 10%;
+
+    /* ── Brand Green ── */
+    --primary: 145 52% 28%;            /* sage green #2d7a47 */
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 120 10% 91%;          /* light sage grey */
+    --secondary-foreground: 150 25% 18%;
+
+    --muted: 120 8% 92%;
+    --muted-foreground: 150 10% 40%;
+
+    /* ── Gold Accent ── */
+    --accent: 40 55% 46%;              /* warm gold #b8963e */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 120 10% 86%;
+    --input: 120 10% 86%;
+    --ring: 145 52% 28%;
+
+    --radius: 0.6rem;
+
+    /* ── Sidebar — deep forest green ── */
+    --sidebar-background: 150 50% 10%;   /* #0d3320 deep forest */
+    --sidebar-foreground: 120 20% 72%;   /* muted sage text */
+    --sidebar-primary: 40 55% 46%;       /* gold */
+    --sidebar-primary-foreground: 0 0% 10%;
+    --sidebar-accent: 150 40% 16%;       /* slightly lighter forest */
+    --sidebar-accent-foreground: 120 25% 90%;
+    --sidebar-border: 150 35% 16%;
+    --sidebar-ring: 40 55% 46%;
+  }
+
+  .dark {
+    --background: 150 25% 8%;
+    --foreground: 120 15% 92%;
+    --card: 150 25% 11%;
+    --card-foreground: 120 15% 92%;
+    --popover: 150 25% 11%;
+    --popover-foreground: 120 15% 92%;
+    --primary: 145 45% 40%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 150 20% 18%;
+    --secondary-foreground: 120 15% 88%;
+    --muted: 150 20% 18%;
+    --muted-foreground: 150 12% 55%;
+    --accent: 40 55% 50%;
+    --accent-foreground: 0 0% 10%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 120 15% 92%;
+    --border: 150 20% 20%;
+    --input: 150 20% 20%;
+    --ring: 145 45% 40%;
+    --sidebar-background: 150 50% 7%;
+    --sidebar-foreground: 120 20% 68%;
+    --sidebar-primary: 40 55% 46%;
+    --sidebar-primary-foreground: 0 0% 10%;
+    --sidebar-accent: 150 40% 13%;
+    --sidebar-accent-foreground: 120 25% 88%;
+    --sidebar-border: 150 35% 13%;
+    --sidebar-ring: 40 55% 46%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* ── Custom scrollbar ── */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary) / 0.35);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.55);
+}
+
+/* ── Geometric pattern for sidebar header ── */
+.sidebar-pattern {
+  background-image:
+    radial-gradient(circle at 20% 50%, hsl(145 50% 22% / 0.5) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, hsl(40 55% 46% / 0.08) 0%, transparent 40%);
+}
+
+/* ── Green-tinted section dividers ── */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, hsl(145 52% 28% / 0.25), transparent);
+}
+
+/* ── Table row hover ── */
+.prayer-row:hover {
+  background-color: hsl(145 30% 96%);
+  cursor: pointer;
+}
+
+/* ── Gold shimmer on active nav ── */
+.nav-active-glow {
+  box-shadow: inset 3px 0 0 hsl(40 55% 46%);
+}
