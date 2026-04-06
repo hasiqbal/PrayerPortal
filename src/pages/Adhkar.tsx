@@ -410,6 +410,10 @@ const PrayerTimeSection = ({
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(d);
   });
+  // Sort entries within each group by display_order so drag-reorder takes effect immediately
+  Object.keys(grouped).forEach((key) => {
+    grouped[key].sort((a, b) => (a.display_order ?? 9999) - (b.display_order ?? 9999));
+  });
 
   const sortableIds = sortedGroupNames.map((n) => `group:${n}`);
   const activeGroupName = groupDragActiveId ? groupDragActiveId.replace(/^group:/, '') : null;
