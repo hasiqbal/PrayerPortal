@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, RefreshCw, Pencil, Trash2, Search, BookOpen, ChevronDown, ChevronRight,
   ToggleLeft, ToggleRight, GripVertical, ImageIcon, Copy, Loader2, ArrowRightLeft,
-  AlignLeft, CheckCheck, Filter,
+  AlignLeft, CheckCheck, Filter, Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -520,6 +520,7 @@ const Adhkar = () => {
   const [bulkDescEdits, setBulkDescEdits] = useState<Record<string, string>>({});
   const [bulkDescSaving, setBulkDescSaving] = useState<Record<string, 'saving' | 'saved' | 'error'>>({});
   const [bulkSavingAll, setBulkSavingAll] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
 
   // Duplicate group state
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
@@ -1046,6 +1047,58 @@ const Adhkar = () => {
     toast.success(`Saved ${dirtyGroups.length} group description${dirtyGroups.length !== 1 ? 's' : ''}.`);
   };
 
+  // ─── AI generation ────────────────────────────────────────────────────────
+  const handleGenerateWithAI = async () => {
+    const groupsToGenerate = allGroupRows.filter((row) => {
+      const current = bulkDescEdits[row.name] !== undefined ? bulkDescEdits[row.name] : row.description;
+      return !current.trim();
+    });
+    if (groupsToGenerate.length === 0) {
+      toast('All visible groups already have descriptions.');
+      return;
+    }
+    setAiGenerating(true);
+    toast(`Generating descriptions for ${groupsToGenerate.length} group${groupsToGenerate.length !== 1 ? 's' : ''}…`);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-group-desc', {
+        body: {
+          groups: groupsToGenerate.map((r) => ({
+            name: r.name,
+            prayerTime: r.prayerTime,
+            entryCount: r.entryCount,
+          })),
+        },
+      });
+      if (error) throw new Error(error.message);
+      const results = (data as { results?: { name: string; description: string; error?: string }[] })?.results ?? [];
+      const succeeded = results.filter((r) => !r.error && r.description);
+      const failed = results.filter((r) => r.error || !r.description);
+      if (succeeded.length > 0) {
+        setBulkDescEdits((prev) => {
+          const next = { ...prev };
+          succeeded.forEach((r) => { next[r.name] = r.description; });
+          return next;
+        });
+        setBulkDescSaving((prev) => {
+          const next = { ...prev };
+          succeeded.forEach((r) => { delete next[r.name]; });
+          return next;
+        });
+        // Switch to "missing" filter if not already on it so user sees the generated ones
+        if (bulkDescFilter !== 'all') setBulkDescFilter('all');
+        toast.success(`Generated ${succeeded.length} description${succeeded.length !== 1 ? 's' : ''}. Review and click Save All.`);
+      }
+      if (failed.length > 0) {
+        toast.error(`${failed.length} group${failed.length !== 1 ? 's' : ''} failed to generate.`);
+        console.warn('[AI] Failed groups:', failed.map((r) => `${r.name}: ${r.error}`).join('\n'));
+      }
+    } catch (err) {
+      toast.error(`AI generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
   const missingDescCount = allGroupRows.filter((r) => !(r.meta?.description ?? r.description)).length;
 
   return (
@@ -1251,7 +1304,7 @@ const Adhkar = () => {
       </Dialog>
 
       {/* ── Bulk Description Editor ── */}
-      <Dialog open={bulkDescOpen} onOpenChange={(v) => { if (!bulkSavingAll) setBulkDescOpen(v); }}>
+      <Dialog open={bulkDescOpen} onOpenChange={(v) => { if (!bulkSavingAll && !aiGenerating) setBulkDescOpen(v); }}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
           {/* Header */}
           <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-4">
@@ -1262,23 +1315,56 @@ const Adhkar = () => {
               </h2>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {allGroupRows.length} groups total
+                {missingDescCount > 0 && <span className="ml-2 text-orange-600 font-medium">· {missingDescCount} missing</span>}
                 {dirtyGroups.length > 0 && (
                   <span className="ml-2 text-amber-600 font-medium">· {dirtyGroups.length} unsaved change{dirtyGroups.length !== 1 ? 's' : ''}</span>
                 )}
               </p>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleBulkSaveAll}
-              disabled={dirtyGroups.length === 0 || bulkSavingAll}
-              className="gap-1.5 border-emerald-400/60 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40 shrink-0"
-            >
-              {bulkSavingAll
-                ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
-                : <><CheckCheck size={13} /> Save All Changes ({dirtyGroups.length})</>}
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Generate with AI */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleGenerateWithAI}
+                disabled={aiGenerating || bulkSavingAll || allGroupRows.filter((r) => {
+                  const cur = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description;
+                  return !cur.trim();
+                }).length === 0}
+                className="gap-1.5 border-violet-400/70 text-violet-700 hover:bg-violet-50 disabled:opacity-40"
+                title="Auto-generate descriptions for groups without one, using OnSpace AI"
+              >
+                {aiGenerating
+                  ? <><Loader2 size={13} className="animate-spin" /> Generating…</>
+                  : <><Sparkles size={13} /> Generate with AI</>}
+              </Button>
+              {/* Save all */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleBulkSaveAll}
+                disabled={dirtyGroups.length === 0 || bulkSavingAll || aiGenerating}
+                className="gap-1.5 border-emerald-400/60 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40"
+              >
+                {bulkSavingAll
+                  ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                  : <><CheckCheck size={13} /> Save All ({dirtyGroups.length})</>}
+              </Button>
+            </div>
           </div>
+
+          {/* AI generating banner */}
+          {aiGenerating && (
+            <div className="px-6 py-2.5 bg-violet-50 border-b border-violet-200 flex items-center gap-2.5">
+              <Loader2 size={13} className="animate-spin text-violet-600 shrink-0" />
+              <p className="text-xs text-violet-700 font-medium">
+                OnSpace AI is generating descriptions for {allGroupRows.filter((r) => {
+                  const cur = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description;
+                  return !cur.trim();
+                }).length} groups — this may take a moment…
+              </p>
+            </div>
+          )}
 
           {/* Filters */}
           <div className="px-6 py-3 border-b border-border bg-muted/20 flex flex-wrap items-center gap-3">
@@ -1326,7 +1412,13 @@ const Adhkar = () => {
             {bulkFilteredRows.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground">
                 <AlignLeft size={28} className="opacity-20" />
-                <p className="text-sm">{bulkDescSearch ? 'No groups match your search.' : 'No groups in this filter.'}</p>
+                <p className="text-sm">
+                  {bulkDescSearch
+                    ? 'No groups match your search.'
+                    : bulkDescFilter === 'missing'
+                    ? 'All groups have descriptions.'
+                    : 'No groups in this filter.'}
+                </p>
               </div>
             ) : (
               <table className="w-full text-sm">
@@ -1438,13 +1530,13 @@ const Adhkar = () => {
               Changes cascade to all entries in each group and sync to the mobile app.
             </p>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setBulkDescOpen(false)} disabled={bulkSavingAll}>
+              <Button variant="outline" size="sm" onClick={() => setBulkDescOpen(false)} disabled={bulkSavingAll || aiGenerating}>
                 Close
               </Button>
               <Button
                 size="sm"
                 onClick={handleBulkSaveAll}
-                disabled={dirtyGroups.length === 0 || bulkSavingAll}
+                disabled={dirtyGroups.length === 0 || bulkSavingAll || aiGenerating}
                 className="gap-1.5"
                 style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
               >
