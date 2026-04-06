@@ -92,6 +92,7 @@ const EXTERNAL_PRAYER_TIMES = new Set([
 
 // Fallback map for any other portal slugs not accepted by the external backend
 const PRAYER_TIME_OVERRIDE: Record<string, string> = {
+  'before-fajr':  'after-fajr',
   'fajr':         'after-fajr',
   'ishraq':       'after-fajr',
   'duha':         'after-fajr',

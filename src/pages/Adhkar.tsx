@@ -29,6 +29,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 const CATEGORY_COLORS: Record<string, { pill: string; dot: string }> = {
+  'before-fajr':   { pill: 'bg-slate-100 text-slate-700 border-slate-200',     dot: '#64748b' },
   'fajr':          { pill: 'bg-blue-100 text-blue-800 border-blue-200',       dot: '#3b82f6' },
   'after-fajr':    { pill: 'bg-sky-100 text-sky-800 border-sky-200',          dot: '#0ea5e9' },
   'ishraq':        { pill: 'bg-amber-100 text-amber-800 border-amber-200',    dot: '#f59e0b' },
@@ -554,7 +555,7 @@ const Adhkar = () => {
 
   // Always show core daily categories so users can add entries even if empty.
   const CORE_CATEGORIES = [
-    'after-fajr', 'ishraq', 'duha', 'after-zuhr', 'after-asr', 'after-maghrib', 'after-isha',
+    'before-fajr', 'after-fajr', 'ishraq', 'duha', 'after-zuhr', 'after-asr', 'after-maghrib', 'after-isha',
     'jumuah', 'after-jumuah',
   ];
   const presentCategories = PRAYER_TIME_CATEGORIES.filter(
