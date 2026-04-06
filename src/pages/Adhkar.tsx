@@ -73,11 +73,17 @@ const SortableEntryRow = ({
     >
       <div className="px-3 py-3 flex items-center gap-2 hover:bg-secondary/10 transition-colors select-none">
         <button
-          {...attributes} {...listeners}
+          {...attributes}
           className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground transition-colors p-0.5"
           title="Drag to reorder" tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            listeners?.onPointerDown?.(e as never);
+          }}
+          onPointerMove={listeners?.onPointerMove}
+          onPointerUp={listeners?.onPointerUp}
+          onKeyDown={listeners?.onKeyDown}
         >
           <GripVertical size={13} />
         </button>
