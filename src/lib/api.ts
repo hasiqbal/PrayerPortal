@@ -225,45 +225,57 @@ export async function deleteAdhkarGroup(id: string): Promise<void> {
   if (error) throw new Error(`Failed to delete group: ${error.message}`);
 }
 
-// ─── Announcements ──────────────────────────────────────────────────────────
+// ─── Announcements (external backend — same as adhkar/prayer_times) ────────────────────────────────────────────────────────────
+
+const ANN_URL = `${BASE_URL}/announcements`;
 
 export async function fetchAnnouncements(): Promise<Announcement[]> {
-  const { data, error } = await supabase
-    .from('announcements')
-    .select('*')
-    .order('display_order', { ascending: true })
-    .order('created_at', { ascending: false });
-  if (error) throw new Error(`Failed to fetch announcements: ${error.message}`);
-  return data as Announcement[];
+  const res = await fetch(
+    `${ANN_URL}?order=display_order.asc,created_at.desc`,
+    { headers: readHeaders }
+  );
+  if (!res.ok) throw new Error(`Failed to fetch announcements: ${res.status}`);
+  return res.json();
 }
 
 export async function createAnnouncement(data: Partial<AnnouncementPayload>): Promise<Announcement> {
-  const { data: rows, error } = await supabase
-    .from('announcements')
-    .insert({ display_order: 0, is_active: true, ...data })
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to create announcement: ${error.message}`);
-  return rows as Announcement;
+  const payload = { display_order: 0, is_active: true, ...data };
+  const res = await fetch(ANN_URL, {
+    method: 'POST',
+    headers: writeHeaders,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to create announcement: ${res.status} — ${body}`);
+  }
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows[0] : rows;
 }
 
 export async function updateAnnouncement(id: string, data: Partial<AnnouncementPayload>): Promise<Announcement> {
-  const { data: rows, error } = await supabase
-    .from('announcements')
-    .update(data)
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to update announcement: ${error.message}`);
-  return rows as Announcement;
+  const res = await fetch(`${ANN_URL}?id=eq.${id}`, {
+    method: 'PATCH',
+    headers: writeHeaders,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to update announcement: ${res.status} — ${body}`);
+  }
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows[0] : rows;
 }
 
 export async function deleteAnnouncement(id: string): Promise<void> {
-  const { error } = await supabase
-    .from('announcements')
-    .delete()
-    .eq('id', id);
-  if (error) throw new Error(`Failed to delete announcement: ${error.message}`);
+  const res = await fetch(`${ANN_URL}?id=eq.${id}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'apikey': ANON_KEY },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to delete announcement: ${res.status} — ${body}`);
+  }
 }
 
 export async function bulkUpdatePrayerTimesFromCsv(
