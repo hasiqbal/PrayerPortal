@@ -75,7 +75,9 @@ const SortableEntryRow = ({
         <button
           {...attributes} {...listeners}
           className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground transition-colors p-0.5"
-          title="Drag to reorder" tabIndex={-1} onClick={(e) => e.stopPropagation()}
+          title="Drag to reorder" tabIndex={-1}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
         >
           <GripVertical size={13} />
         </button>
