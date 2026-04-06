@@ -321,7 +321,7 @@ const SortableGroupSection = ({
         </div>
       </div>
 
-      {!collapsed && !isDragOverlay && (
+      {!collapsed && !isDragOverlay && !isDragging && (
         <div className="bg-background">
           <DndContext
             sensors={sensors} collisionDetection={closestCenter}
