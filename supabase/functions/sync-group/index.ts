@@ -10,9 +10,13 @@ const WRITE_HEADERS = {
   'Prefer': 'return=representation',
 };
 
+const READ_HEADERS = {
+  'Content-Type': 'application/json',
+  'apikey': EXT_KEY,
+};
+
 /**
  * PATCH all adhkar entries in a group with any given fields.
- * Used to cascade description, prayer_time, or any combination to individual entries.
  */
 async function cascadeFieldsToEntries(
   groupName: string,
@@ -69,19 +73,59 @@ async function cascadeAdhkarEntries(
   return Array.isArray(rows) ? rows.length : 0;
 }
 
+/**
+ * Seed descriptions for a list of groups.
+ * Only sets description if the entries currently have no description (null/empty).
+ */
+async function seedGroupDescription(
+  groupName: string,
+  description: string,
+  overwrite = false,
+): Promise<{ group: string; cascaded: number; skipped: boolean }> {
+  if (!overwrite) {
+    // Check if any entry already has a description
+    const checkUrl = `${EXT_BASE}/adhkar?group_name=eq.${encodeURIComponent(groupName)}&select=description&limit=1`;
+    const checkRes = await fetch(checkUrl, { headers: READ_HEADERS });
+    if (checkRes.ok) {
+      const rows = await checkRes.json() as { description: string | null }[];
+      if (rows.length > 0 && rows[0].description) {
+        console.log(`[sync-group] Skipping "${groupName}" — description already set: "${rows[0].description.slice(0, 60)}"`);
+        return { group: groupName, cascaded: 0, skipped: true };
+      }
+    }
+  }
+  const cascaded = await cascadeFieldsToEntries(groupName, { description });
+  return { group: groupName, cascaded, skipped: false };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
     const body = await req.json() as {
-      groupName: string;
+      groupName?: string;
       payload?: Record<string, unknown>;
-      oldGroupName?: string;     // present when renaming
-      newPrayerTime?: string;    // present when prayer time changed
-      descriptionOnly?: boolean; // true = only cascade description to adhkar entries
+      oldGroupName?: string;
+      newPrayerTime?: string;
+      descriptionOnly?: boolean;
+      // Bulk seed mode: set descriptions for multiple groups at once
+      seedDescriptions?: Array<{ groupName: string; description: string; overwrite?: boolean }>;
     };
 
-    const { groupName, payload = {}, oldGroupName, newPrayerTime, descriptionOnly } = body;
+    const { groupName, payload = {}, oldGroupName, newPrayerTime, descriptionOnly, seedDescriptions } = body;
+
+    // ── Bulk seed mode ────────────────────────────────────────────────────────
+    if (seedDescriptions && Array.isArray(seedDescriptions)) {
+      const results = await Promise.all(
+        seedDescriptions.map(({ groupName: gn, description, overwrite }) =>
+          seedGroupDescription(gn, description, overwrite ?? false)
+        )
+      );
+      console.log('[sync-group] Seed results:', JSON.stringify(results));
+      return new Response(JSON.stringify({ ok: true, results }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     if (!groupName) {
       return new Response(JSON.stringify({ error: 'groupName is required' }), {
@@ -92,9 +136,7 @@ Deno.serve(async (req: Request) => {
 
     const results: Record<string, unknown> = {};
 
-    // ── 1. Description-only sync: cascade description field to all adhkar entries ─
-    // The external adhkar_groups table is empty — the app reads description
-    // from individual adhkar entries, so we must cascade it there.
+    // ── 1. Description-only sync ──────────────────────────────────────────────
     if (descriptionOnly) {
       const description = payload.description !== undefined ? payload.description as string | null : null;
       try {
@@ -110,9 +152,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ── 2. Cascade rename (+ optional prayer_time + description) ─────────────────
-    // When the group is renamed, update group_name on all matching adhkar entries.
-    // Also cascade prayer_time and description in the same PATCH if provided.
+    // ── 2. Cascade rename (+ optional prayer_time + description) ─────────────
     if (oldGroupName && oldGroupName !== groupName) {
       try {
         const descPayload = payload.description !== undefined ? payload.description as string | null : undefined;
@@ -123,15 +163,12 @@ Deno.serve(async (req: Request) => {
         results.cascadeError = String(cascadeErr);
         console.error('[sync-group] Cascade error (non-fatal):', cascadeErr);
       }
-      // If rename was done, entries already got the new prayer_time — skip step 3.
       return new Response(JSON.stringify({ ok: true, ...results }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // ── 3. No rename — cascade individual field changes to entries ────────────────
-    // Handles cases like: only prayer_time changed, only description changed,
-    // or both changed together (without a group name change).
+    // ── 3. No rename — cascade field changes to entries ───────────────────────
     const entryPatch: Record<string, unknown> = {};
     if (payload.description !== undefined) entryPatch.description = payload.description;
     if (newPrayerTime) entryPatch.prayer_time = newPrayerTime;

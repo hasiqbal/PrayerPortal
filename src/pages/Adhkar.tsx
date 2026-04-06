@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, RefreshCw, Pencil, Trash2, Search, BookOpen, ChevronDown, ChevronRight,
@@ -534,6 +534,50 @@ const Adhkar = () => {
     queryKey: ['adhkar-groups'],
     queryFn: () => fetchAdhkarGroups(),
   });
+
+  // Seed known group descriptions on first load (only if entries have no description yet).
+  // Uses the sync-group Edge Function in bulk-seed mode — skips groups already described.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || adhkar.length === 0) return;
+    seededRef.current = true;
+    const knownDescriptions = [
+      {
+        groupName: 'Surah Mulk',
+        description:
+          "Recited every night before sleep. The Prophet ﷺ said: 'There is a surah in the Quran of thirty verses that intercedes for its reciter until they are forgiven.' — Tirmidhi 2891",
+      },
+      {
+        groupName: 'Hizb al-Bahr',
+        description:
+          "The Litany of the Sea (حزب البحر) — composed by Imam Abul-Hasan al-Shadhili. A renowned du'a for protection, safety, and divine mercy, widely recited in the Shadhili tradition.",
+      },
+    ];
+    // Only seed groups that actually exist in the current adhkar data
+    const existingGroupNames = new Set(adhkar.map((d) => d.group_name).filter(Boolean));
+    const toSeed = knownDescriptions.filter((g) => existingGroupNames.has(g.groupName));
+    if (toSeed.length === 0) return;
+    supabase.functions
+      .invoke('sync-group', { body: { seedDescriptions: toSeed } })
+      .then((res) => {
+        const results = (res.data as Record<string, unknown>)?.results as Array<{ group: string; cascaded: number; skipped: boolean }> | undefined;
+        if (!results) return;
+        const seeded = results.filter((r) => !r.skipped && r.cascaded > 0);
+        if (seeded.length > 0) {
+          console.log('[Adhkar] Seeded descriptions for:', seeded.map((r) => r.group).join(', '));
+          // Update local cache so descriptions appear immediately
+          queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+            old.map((d) => {
+              const seed = seeded.find((r) => r.group === d.group_name);
+              if (!seed) return d;
+              const desc = knownDescriptions.find((k) => k.groupName === d.group_name)?.description ?? null;
+              return { ...d, description: desc };
+            })
+          );
+        }
+      })
+      .catch((e) => console.warn('[Adhkar] Description seed (non-critical):', e));
+  }, [adhkar.length]);
 
   const groupMap = useMemo(() => {
     const map: Record<string, AdhkarGroup> = {};
