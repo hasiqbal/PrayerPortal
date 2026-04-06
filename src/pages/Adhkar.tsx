@@ -851,6 +851,7 @@ const Adhkar = () => {
         await updateAdhkarGroup(meta.id, { description });
         await cascadePromise;
         toast.success('Group description updated.');
+        refetch();
       } catch (err) {
         // Revert on failure
         queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
@@ -862,6 +863,7 @@ const Adhkar = () => {
       // No local metadata record — cascade to external entries only
       await cascadePromise;
       toast.success('Group description updated.');
+      refetch();
     }
   };
 
