@@ -1019,13 +1019,26 @@ const Adhkar = () => {
                   onRenameGroup={handleRenameGroup}
                   onDescriptionSave={handleDescriptionSave}
                   onDeleteGroup={async (name, meta) => {
-                    if (!confirm(`Delete group "${name}" metadata? Adhkar entries in this group will NOT be deleted.`)) return;
+                    const groupEntries = adhkar.filter((d) => d.group_name === name);
+                    const entryCount = groupEntries.length;
+                    if (!confirm(`Delete group "${name}"?\n\nThis will also permanently delete all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} inside it. This cannot be undone.`)) return;
+                    // Remove from local cache immediately
+                    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.group_name !== name));
                     if (meta?.id) {
-                      await import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(meta.id));
                       queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => old.filter((g) => g.id !== meta.id));
-                      toast.success(`Group "${name}" deleted.`);
+                    }
+                    // Delete metadata record if it exists
+                    if (meta?.id) {
+                      import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(meta.id)).catch(() => {});
+                    }
+                    // Delete all entries from external backend
+                    const { deleteDhikr } = await import('@/lib/api');
+                    const results = await Promise.allSettled(groupEntries.map((d) => deleteDhikr(d.id)));
+                    const failed = results.filter((r) => r.status === 'rejected').length;
+                    if (failed > 0) {
+                      toast.error(`Group deleted but ${failed} entr${failed === 1 ? 'y' : 'ies'} failed to delete from backend.`);
                     } else {
-                      toast.error('Group has no metadata record to delete.');
+                      toast.success(`Group "${name}" and all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} deleted.`);
                     }
                   }}
                   onDuplicateGroup={handleDuplicateGroup}
