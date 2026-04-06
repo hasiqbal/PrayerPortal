@@ -830,17 +830,19 @@ const Adhkar = () => {
     queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
       old.map((g) => (g.name === groupName ? { ...g, description } : g))
     );
+    // Always cascade description to external backend entries via Edge Function.
+    // Even groups without a local metadata record have entries on the external backend.
+    const cascadePromise = supabase.functions.invoke('sync-group', {
+      body: { groupName, payload: { description }, descriptionOnly: true },
+    }).then((res) => {
+      const count = (res.data as Record<string, unknown>)?.descriptionCascaded;
+      if (typeof count === 'number') console.log(`[Adhkar] Cascaded description to ${count} entries.`);
+    }).catch((e) => console.warn('[Adhkar] Description sync (non-critical):', e));
+
     if (meta?.id) {
       try {
         await updateAdhkarGroup(meta.id, { description });
-        // Cascade description to all adhkar entries on external backend
-        // (external adhkar_groups table is empty; app reads description from individual entries)
-        supabase.functions.invoke('sync-group', {
-          body: { groupName, payload: { description }, descriptionOnly: true },
-        }).then((res) => {
-          const count = (res.data as Record<string, unknown>)?.descriptionCascaded;
-          if (typeof count === 'number') console.log(`[Adhkar] Cascaded description to ${count} entries.`);
-        }).catch((e) => console.warn('[Adhkar] Description sync (non-critical):', e));
+        await cascadePromise;
         toast.success('Group description updated.');
       } catch (err) {
         // Revert on failure
@@ -850,7 +852,9 @@ const Adhkar = () => {
         toast.error(`Failed to save description: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
     } else {
-      toast.success('Description updated locally (no metadata record).');
+      // No local metadata record — cascade to external entries only
+      await cascadePromise;
+      toast.success('Group description updated.');
     }
   };
 
