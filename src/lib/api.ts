@@ -60,7 +60,7 @@ export async function updatePrayerTime(id: string, data: PrayerTimeUpdate): Prom
 
 // Columns needed for the list/table view — excludes `sections` (potentially large JSON)
 const ADHKAR_LIST_COLS =
-  'id,title,arabic_title,arabic,transliteration,translation,reference,count,prayer_time,group_name,group_order,display_order,is_active,created_at,updated_at';
+  'id,title,arabic_title,arabic,transliteration,translation,reference,count,prayer_time,group_name,group_order,display_order,is_active,description,created_at,updated_at';
 
 export async function fetchAdhkar(category?: string): Promise<Dhikr[]> {
   let url = `${BASE_URL}/adhkar?select=${ADHKAR_LIST_COLS}&order=prayer_time.asc,group_order.asc,display_order.asc,created_at.asc`;

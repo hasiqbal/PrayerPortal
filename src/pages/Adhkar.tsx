@@ -168,7 +168,9 @@ const SortableGroupSection = ({
   const iconBg = groupMeta?.icon_bg_color ?? '#6366f1';
   const badgeText = groupMeta?.badge_text;
   const badgeColor = groupMeta?.badge_color ?? '#6366f1';
-  const description = groupMeta?.description;
+  // Fall back to the description stored on individual entries (cascaded from group saves)
+  // when no local adhkar_groups metadata record exists.
+  const description = groupMeta?.description ?? items[0]?.description ?? null;
   const isUngrouped = groupName === '(Ungrouped)';
   const entryDragActiveItem = entryDragActiveId ? items.find((d) => d.id === entryDragActiveId) : null;
 
@@ -829,6 +831,11 @@ const Adhkar = () => {
     // Optimistically update the cache
     queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
       old.map((g) => (g.name === groupName ? { ...g, description } : g))
+    );
+    // Also update the local adhkar entries cache so the description shows immediately
+    // for groups without a local metadata record (description is read from entries as fallback).
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+      old.map((d) => (d.group_name === groupName ? { ...d, description } : d))
     );
     // Always cascade description to external backend entries via Edge Function.
     // Even groups without a local metadata record have entries on the external backend.
