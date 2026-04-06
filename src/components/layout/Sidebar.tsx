@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CalendarDays, BookOpen, Database, Bell, Menu, X, Home, FileSpreadsheet, Star, ArrowRightLeft } from 'lucide-react';
+import { CalendarDays, BookOpen, Database, Bell, Menu, X, Home, FileSpreadsheet, Star } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
 type NavItem = { to: string; icon: React.ElementType; label: string; temp?: boolean };
@@ -12,7 +12,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/cloud-data',       icon: Database,         label: 'Cloud Data'   },
   { to: '/sunnah-reminders', icon: Star,             label: 'Sunnah Reminders' },
   { to: '/excel-converter',  icon: FileSpreadsheet,  label: 'Excel → CSV'  },
-  { to: '/migrate',           icon: ArrowRightLeft,   label: 'Migrate Data', temp: true },
 ];
 
 // Crescent + Star SVG mark (Islamic geometric)
