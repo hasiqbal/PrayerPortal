@@ -116,7 +116,7 @@ type FormState = typeof EMPTY;
 const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalProps) => {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
-  const isEdit = !!group?.id && !group.id.startsWith('__');
+  const isEdit = !!group?.id || !!group?.name;
   const originalName = group?.name ?? '';
   const originalPrayerTime = group?.prayer_time ?? '';
   // When launched from App View with only a name (no real id), treat as create
@@ -158,7 +158,8 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
       display_order: Number(form.display_order) || 0,
     };
     try {
-      const saved = isEdit
+      const hasRealId = !!group?.id && !group.id.startsWith('__');
+      const saved = hasRealId
         ? await updateAdhkarGroup(group!.id, payload)
         : await createAdhkarGroup(payload);
 
@@ -184,7 +185,7 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
       if (isEdit) {
         const nameChanged = payload.name !== originalName;
         const timeChanged = payload.prayer_time !== originalPrayerTime;
-        if (nameChanged || timeChanged) {
+        if (hasRealId && (nameChanged || timeChanged)) {
           try {
             const count = await cascadeGroupRename(
               originalName,
