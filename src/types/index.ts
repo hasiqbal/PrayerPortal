@@ -94,6 +94,22 @@ export const PRAYER_TIME_CATEGORIES = [
 
 export type PrayerTimeCategory = typeof PRAYER_TIME_CATEGORIES[number];
 
+// Adhkar-specific subset: only "before" and "after" prayer time slots.
+// Standalone prayer names (fajr, isha, etc.) are not used for adhkar grouping.
+export const ADHKAR_PRAYER_TIME_CATEGORIES = [
+  'before-fajr',
+  'after-fajr',
+  'after-zuhr',
+  'after-asr',
+  'after-maghrib',
+  'after-isha',
+  'before-sleep',
+  'after-jumuah',
+  'morning',
+  'evening',
+  'general',
+] as const;
+
 // ─── Adhkar Group Metadata ────────────────────────────────────────────────────
 
 export interface AdhkarGroup {

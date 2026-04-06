@@ -17,7 +17,7 @@ import {
   fetchAdhkar, deleteDhikr, fetchAdhkarGroups, createAdhkarGroup, createDhikr, updateDhikr, updateAdhkarGroup,
 } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
-import { Dhikr, AdhkarGroup, PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
+import { Dhikr, AdhkarGroup, PRAYER_TIME_CATEGORIES, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
 import { toast } from 'sonner';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
@@ -554,10 +554,7 @@ const Adhkar = () => {
   });
 
   // Always show core daily categories so users can add entries even if empty.
-  const CORE_CATEGORIES = [
-    'before-fajr', 'after-fajr', 'ishraq', 'duha', 'after-zuhr', 'after-asr', 'after-maghrib', 'after-isha',
-    'jumuah', 'after-jumuah',
-  ];
+  const CORE_CATEGORIES = [...ADHKAR_PRAYER_TIME_CATEGORIES];
   const presentCategories = PRAYER_TIME_CATEGORIES.filter(
     (cat) => CORE_CATEGORIES.includes(cat) || adhkar.some((d) => d.prayer_time === cat)
   );
@@ -1081,7 +1078,7 @@ const Adhkar = () => {
                 onChange={(e) => setMoveNewPrayerTime(e.target.value)}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                {PRAYER_TIME_CATEGORIES.map((cat) => (
+                {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
                   <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
                 ))}
               </select>
@@ -1148,7 +1145,7 @@ const Adhkar = () => {
                 onChange={(e) => setDupPrayerTime(e.target.value)}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                {PRAYER_TIME_CATEGORIES.map((cat) => (
+                {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
                   <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
                 ))}
               </select>

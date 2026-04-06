@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { AdhkarGroup, GROUP_ICON_OPTIONS, GROUP_COLOR_PRESETS, PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
+import { AdhkarGroup, GROUP_ICON_OPTIONS, GROUP_COLOR_PRESETS, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
 import { createAdhkarGroup, updateAdhkarGroup } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -37,7 +37,7 @@ interface AdhkarGroupModalProps {
 
 const EMPTY = {
   name: '',
-  prayer_time: 'after-fajr',
+  prayer_time: 'after-fajr' as string,
   icon: '⭐',
   icon_color: '#ffffff',
   icon_bg_color: '#6366f1',
@@ -204,7 +204,7 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
                 onChange={(e) => set('prayer_time', e.target.value)}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                {PRAYER_TIME_CATEGORIES.map((cat) => (
+                {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
                   <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
                 ))}
               </select>
