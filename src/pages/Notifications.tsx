@@ -1,9 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bell, Send, Clock, CheckCircle2, XCircle, RefreshCw, Trash2,
   Users, Image as ImageIcon, Link2, ChevronDown, ChevronUp,
-  AlertCircle, Smartphone, Megaphone, Search, Filter,
+  AlertCircle, Smartphone, Megaphone, Search, Filter, Upload, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,10 +67,43 @@ const ComposePanel = ({ onSent }: { onSent: (notif: PushNotification) => void })
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [sending, setSending] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isValid = title.trim().length > 0 && body.trim().length > 0;
   const titleRemaining = 65 - title.length;
   const bodyRemaining = 240 - body.length;
+
+  const handleImageUpload = async (file: File) => {
+    if (!file) return;
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Only JPG, PNG, WebP, and GIF images are supported.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image must be smaller than 10 MB.');
+      return;
+    }
+    setUploading(true);
+    try {
+      const ext = file.name.split('.').pop() ?? 'jpg';
+      const path = `notifications/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from('adhkar-images')
+        .upload(path, file, { contentType: file.type, upsert: false });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage.from('adhkar-images').getPublicUrl(path);
+      setImageUrl(urlData.publicUrl);
+      setShowAdvanced(true);
+      toast.success('Image uploaded successfully.');
+    } catch (err) {
+      toast.error(`Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const saveToHistory = async (status: 'sent' | 'draft' | 'failed', extra?: Partial<PushNotification>) => {
     const { data, error } = await supabase.from('push_notifications').insert({
@@ -230,13 +263,54 @@ const ComposePanel = ({ onSent }: { onSent: (notif: PushNotification) => void })
           <div className="space-y-4 pl-4 border-l-2 border-border">
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5"><ImageIcon size={12} /> Image URL <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
-              <Input
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="https://example.com/image.jpg"
-                className="text-sm"
-              />
-              <p className="text-[11px] text-muted-foreground">Displayed as a rich notification banner on supported devices.</p>
+              <div className="flex gap-2">
+                <Input
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="https://example.com/image.jpg"
+                  className="text-sm flex-1"
+                />
+                {imageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setImageUrl('')}
+                    className="px-2 rounded-md border border-input hover:bg-destructive/10 transition-colors shrink-0"
+                    title="Remove image"
+                  >
+                    <X size={14} className="text-destructive/70" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex items-center gap-1.5 px-3 h-9 rounded-md border border-input bg-background hover:bg-muted transition-colors text-xs font-medium text-foreground disabled:opacity-60 shrink-0"
+                  title="Upload image from device"
+                >
+                  {uploading
+                    ? <><RefreshCw size={12} className="animate-spin" /> Uploading…</>
+                    : <><Upload size={12} /> Upload</>}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); }}
+                />
+              </div>
+              {imageUrl && (
+                <div className="flex items-center gap-2 mt-1.5 px-2 py-1.5 rounded-lg border border-border bg-muted/30">
+                  <img
+                    src={imageUrl}
+                    alt=""
+                    className="w-10 h-10 rounded object-cover border border-border shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                  <p className="text-[10px] text-muted-foreground truncate flex-1 min-w-0" title={imageUrl}>{imageUrl}</p>
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground">Displayed as a rich notification banner on supported devices. Upload or paste a URL.</p>
             </div>
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5"><Link2 size={12} /> Deep Link / URL <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
