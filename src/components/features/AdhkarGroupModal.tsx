@@ -177,8 +177,8 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
       syncGroupToExternal(payload.name!, externalPayload)
         .then(() => console.log('[AdhkarGroupModal] External group synced:', payload.name))
         .catch((err) => {
-          console.warn('[AdhkarGroupModal] External sync error:', err);
-          toast.warning('Group saved locally, but failed to sync description to the app. Check console for details.');
+          // Best-effort sync — log silently, don't interrupt the user
+          console.warn('[AdhkarGroupModal] External sync skipped (non-critical):', err?.message ?? err);
         });
 
       // If name or prayer time changed, cascade-update all matching adhkar entries
