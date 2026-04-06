@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
 
     // ── Migrate announcements ──────────────────────────────────────────────
     console.log('Fetching announcements from external backend...');
-    const announcements = await fetchAll('announcements', 'id,title,body,is_active,link_url,image_url,created_at,updated_at');
+    const announcements = await fetchAll('announcements', 'id,title,body,is_active,image_url,created_at,updated_at');
     console.log(`Fetched ${announcements.length} announcements`);
 
     if (announcements.length > 0) {
