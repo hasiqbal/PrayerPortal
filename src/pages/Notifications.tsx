@@ -3,18 +3,18 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bell, Send, Clock, CheckCircle2, XCircle, RefreshCw, Trash2,
   Users, Image as ImageIcon, Link2, ChevronDown, ChevronUp,
-  AlertCircle, Smartphone, Megaphone, Search, Filter, Upload, X,
+  Smartphone, Megaphone, Search, Filter, Upload, X,
   RotateCcw, Bookmark, BookmarkCheck, Calendar, Tag, LayoutGrid,
-  Layers, ChevronRight, Star, Moon, Zap, Heart, Flame,
+  Layers, ChevronRight, Code2, Copy,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import Sidebar from '@/components/layout/Sidebar';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,6 +33,17 @@ interface PushNotification {
   error_message: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface DeviceToken {
+  id: string;
+  token: string;
+  platform: string;
+  app_version: string | null;
+  device_model: string | null;
+  is_active: boolean;
+  registered_at: string;
+  last_active: string;
 }
 
 interface Template {
@@ -109,8 +120,8 @@ const BUILT_IN_TEMPLATES: Template[] = [
 const statusConfig: Record<string, { label: string; icon: React.ReactNode; class: string; dot: string }> = {
   sent:      { label: 'Sent',      icon: <CheckCircle2 size={11} />, class: 'bg-emerald-100 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
   failed:    { label: 'Failed',    icon: <XCircle size={11} />,      class: 'bg-red-100 text-red-700 border-red-200',             dot: 'bg-red-500'    },
-  draft:     { label: 'Draft',     icon: <Clock size={11} />,         class: 'bg-gray-100 text-gray-600 border-gray-200',          dot: 'bg-gray-400'   },
-  scheduled: { label: 'Scheduled', icon: <Calendar size={11} />,      class: 'bg-blue-100 text-blue-700 border-blue-200',          dot: 'bg-blue-500'   },
+  draft:     { label: 'Draft',     icon: <Clock size={11} />,        class: 'bg-gray-100 text-gray-600 border-gray-200',          dot: 'bg-gray-400'   },
+  scheduled: { label: 'Scheduled', icon: <Calendar size={11} />,     class: 'bg-blue-100 text-blue-700 border-blue-200',          dot: 'bg-blue-500'   },
 };
 
 const EMPTY_COMPOSE: ComposeData = {
@@ -168,7 +179,6 @@ const ImageGalleryModal = ({ onSelect, onClose }: { onSelect: (url: string) => v
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
-        {/* Header */}
         <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0">
           <div>
             <h3 className="text-sm font-bold text-foreground">Image Gallery</h3>
@@ -178,8 +188,6 @@ const ImageGalleryModal = ({ onSelect, onClose }: { onSelect: (url: string) => v
             <X size={15} className="text-muted-foreground" />
           </button>
         </div>
-
-        {/* Grid */}
         <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center h-40 gap-2 text-muted-foreground">
@@ -198,9 +206,7 @@ const ImageGalleryModal = ({ onSelect, onClose }: { onSelect: (url: string) => v
                   type="button"
                   onClick={() => setSelected(img.url)}
                   className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${
-                    selected === img.url
-                      ? 'border-primary ring-2 ring-primary/30'
-                      : 'border-border hover:border-primary/50'
+                    selected === img.url ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/50'
                   }`}
                 >
                   <img src={img.url} alt={img.name} className="w-full h-full object-cover" />
@@ -214,8 +220,6 @@ const ImageGalleryModal = ({ onSelect, onClose }: { onSelect: (url: string) => v
             </div>
           )}
         </div>
-
-        {/* Footer */}
         <div className="px-5 py-3 border-t border-border flex items-center justify-between gap-3 shrink-0">
           <p className="text-xs text-muted-foreground">{selected ? 'Image selected' : 'Click an image to select it'}</p>
           <div className="flex gap-2">
@@ -279,11 +283,7 @@ const TemplatesPanel = ({
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                   {!t.builtIn && (
-                    <button
-                      onClick={() => onDelete(t.id)}
-                      className="p-1 rounded hover:bg-destructive/10 transition-colors"
-                      title="Delete template"
-                    >
+                    <button onClick={() => onDelete(t.id)} className="p-1 rounded hover:bg-destructive/10 transition-colors" title="Delete template">
                       <Trash2 size={11} className="text-destructive/60" />
                     </button>
                   )}
@@ -310,10 +310,12 @@ const ComposePanel = ({
   initialData,
   onSent,
   onSaveTemplate,
+  onRefetchHistory,
 }: {
   initialData?: Partial<ComposeData>;
   onSent: (notif: PushNotification) => void;
   onSaveTemplate: (t: Omit<Template, 'id'>) => void;
+  onRefetchHistory: () => void;
 }) => {
   const [form, setForm] = useState<ComposeData>({ ...EMPTY_COMPOSE, ...initialData });
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -360,7 +362,7 @@ const ComposePanel = ({
     }
   };
 
-  const buildPayload = () => ({
+  const buildDbPayload = () => ({
     title: form.title.trim(),
     body: form.body.trim(),
     image_url: form.imageUrl.trim() || null,
@@ -371,10 +373,11 @@ const ComposePanel = ({
 
   const saveToDb = async (status: PushNotification['status'], extra?: Record<string, unknown>) => {
     const { data, error } = await supabase.from('push_notifications').insert({
-      ...buildPayload(), status,
-      sent_at: status === 'sent' ? new Date().toISOString() : null,
+      ...buildDbPayload(),
+      status,
+      sent_at: null,
       scheduled_for: (form.scheduleEnabled && form.scheduledFor) ? new Date(form.scheduledFor).toISOString() : null,
-      recipient_count: status === 'sent' ? 0 : null,
+      recipient_count: null,
       ...extra,
     }).select().single();
     if (error) throw error;
@@ -384,18 +387,63 @@ const ComposePanel = ({
   const handleSend = async () => {
     if (!isValid) return;
     setSending(true);
+
     try {
       if (form.scheduleEnabled && form.scheduledFor) {
+        // Save as scheduled — no immediate delivery
         const saved = await saveToDb('scheduled');
         onSent(saved);
-        toast.success('Notification scheduled. It will be sent when OneSignal is connected and the time arrives.');
-      } else {
-        await new Promise((r) => setTimeout(r, 600));
-        const saved = await saveToDb('sent');
-        onSent(saved);
-        toast.success('Notification sent! (OneSignal not yet connected — saved to history.)');
+        toast.success('Notification scheduled.');
+        setForm(EMPTY_COMPOSE);
+        return;
       }
-      setForm(EMPTY_COMPOSE);
+
+      // 1. Insert the notification record as 'draft' to get an ID
+      const draft = await saveToDb('draft');
+      onSent(draft);
+
+      // 2. Call the Edge Function to deliver via Expo
+      const { data, error } = await supabase.functions.invoke('send-notification', {
+        body: {
+          notificationId: draft.id,
+          title: form.title.trim(),
+          body: form.body.trim(),
+          imageUrl: form.imageUrl.trim() || undefined,
+          linkUrl: form.linkUrl.trim() || undefined,
+          audience: form.audience,
+        },
+      });
+
+      if (error) {
+        let errorMessage = error.message;
+        if (error instanceof FunctionsHttpError) {
+          try {
+            const statusCode = error.context?.status ?? 500;
+            const textContent = await error.context?.text();
+            errorMessage = `[${statusCode}] ${textContent || error.message}`;
+          } catch {
+            errorMessage = error.message;
+          }
+        }
+        toast.error(`Send failed: ${errorMessage}`);
+        // Mark as failed in DB
+        await supabase.from('push_notifications').update({ status: 'failed', error_message: errorMessage }).eq('id', draft.id);
+      } else {
+        const sent: number = data?.sent ?? 0;
+        const total: number = data?.total ?? 0;
+        if (sent === 0 && total === 0) {
+          toast.warning('Sent — but no registered devices found yet. Install the app and grant notification permission first.');
+        } else if (sent === total) {
+          toast.success(`Delivered to ${sent.toLocaleString()} device${sent !== 1 ? 's' : ''}.`);
+        } else {
+          toast.success(`Delivered to ${sent} of ${total} devices. Check history for details.`);
+        }
+        setForm(EMPTY_COMPOSE);
+      }
+
+      // 3. Refetch history to show updated recipient_count and status
+      setTimeout(() => onRefetchHistory(), 800);
+
     } catch (e) {
       toast.error(`Failed: ${e instanceof Error ? e.message : 'Unknown'}`);
     } finally {
@@ -420,7 +468,6 @@ const ComposePanel = ({
 
   const handleSaveTemplate = () => {
     if (!isValid) return;
-    const cat = getCategoryMeta(form.category);
     onSaveTemplate({
       label: form.title.slice(0, 40),
       icon: '💬',
@@ -444,23 +491,13 @@ const ComposePanel = ({
 
       <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-border flex items-center gap-3"
-          style={{ background: 'hsl(var(--primary) / 0.06)' }}>
+        <div className="px-6 py-4 border-b border-border flex items-center gap-3" style={{ background: 'hsl(var(--primary) / 0.06)' }}>
           <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'hsl(var(--primary))' }}>
             <Bell size={17} className="text-white" />
           </div>
           <div>
             <h2 className="text-sm font-bold text-foreground">Compose Notification</h2>
-            <p className="text-xs text-muted-foreground">Delivered to app users when OneSignal is connected.</p>
-          </div>
-        </div>
-
-        {/* OneSignal banner */}
-        <div className="mx-6 mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
-          <AlertCircle size={15} className="text-amber-600 mt-0.5 shrink-0" />
-          <div>
-            <p className="text-xs font-semibold text-amber-800">OneSignal not yet connected</p>
-            <p className="text-xs text-amber-700 mt-0.5">Notifications save to history but won't deliver until credentials are configured. See Setup Guide.</p>
+            <p className="text-xs text-muted-foreground">Sent instantly via Expo Push to all registered devices.</p>
           </div>
         </div>
 
@@ -556,12 +593,12 @@ const ComposePanel = ({
               {/* Image */}
               <div className="space-y-1.5">
                 <Label className="flex items-center gap-1.5"><ImageIcon size={12} /> Image <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <Input
                     value={form.imageUrl}
                     onChange={(e) => set('imageUrl', e.target.value)}
                     placeholder="https://…/image.jpg"
-                    className="text-sm flex-1"
+                    className="text-sm flex-1 min-w-0"
                   />
                   {form.imageUrl && (
                     <button type="button" onClick={() => set('imageUrl', '')} className="px-2 rounded-md border border-input hover:bg-destructive/10 transition-colors shrink-0" title="Remove">
@@ -572,7 +609,6 @@ const ComposePanel = ({
                     type="button"
                     onClick={() => setShowGallery(true)}
                     className="flex items-center gap-1.5 px-3 h-9 rounded-md border border-input bg-background hover:bg-muted transition-colors text-xs font-medium shrink-0"
-                    title="Select from gallery"
                   >
                     <LayoutGrid size={12} /> Gallery
                   </button>
@@ -581,7 +617,6 @@ const ComposePanel = ({
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploading}
                     className="flex items-center gap-1.5 px-3 h-9 rounded-md border border-input bg-background hover:bg-muted transition-colors text-xs font-medium shrink-0 disabled:opacity-60"
-                    title="Upload from device"
                   >
                     {uploading ? <><RefreshCw size={12} className="animate-spin" /> …</> : <><Upload size={12} /> Upload</>}
                   </button>
@@ -595,7 +630,7 @@ const ComposePanel = ({
                     <p className="text-[10px] text-muted-foreground truncate flex-1 min-w-0">{form.imageUrl}</p>
                   </div>
                 )}
-                <p className="text-[11px] text-muted-foreground">Upload, browse gallery, or paste a URL. Recommended: 1440×720px.</p>
+                <p className="text-[11px] text-muted-foreground">Recommended: 1440×720px (2:1). Android shows banner; iOS shows thumbnail.</p>
               </div>
 
               {/* Link */}
@@ -744,13 +779,22 @@ const HistoryRow = ({
               <Users size={10} /> {AUDIENCE_OPTIONS.find((o) => o.value === notif.audience)?.label ?? notif.audience}
             </span>
             {notif.status === 'sent' && notif.recipient_count !== null && (
-              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                <Smartphone size={10} /> {notif.recipient_count.toLocaleString()} device{notif.recipient_count !== 1 ? 's' : ''}
+              <span className={`flex items-center gap-1 text-[10px] font-semibold ${notif.recipient_count > 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                <Smartphone size={10} />
+                {notif.recipient_count > 0
+                  ? `${notif.recipient_count.toLocaleString()} device${notif.recipient_count !== 1 ? 's' : ''} reached`
+                  : 'No devices reached'}
               </span>
             )}
             {notif.image_url && <span className="flex items-center gap-1 text-[10px] text-muted-foreground"><ImageIcon size={10} /> image</span>}
             {notif.link_url && <span className="flex items-center gap-1 text-[10px] text-muted-foreground"><Link2 size={10} /> link</span>}
           </div>
+          {/* Error message inline */}
+          {notif.error_message && (
+            <p className="mt-1 text-[10px] text-red-500 leading-relaxed line-clamp-1" title={notif.error_message}>
+              ⚠ {notif.error_message}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
@@ -781,6 +825,7 @@ const HistoryRow = ({
                 { label: 'Message',   value: notif.body  },
                 { label: 'Audience',  value: AUDIENCE_OPTIONS.find((o) => o.value === notif.audience)?.label ?? notif.audience },
                 { label: 'Category',  value: getCategoryMeta(notif.category ?? 'general').label },
+                ...(notif.recipient_count !== null ? [{ label: 'Delivered', value: `${notif.recipient_count.toLocaleString()} device${notif.recipient_count !== 1 ? 's' : ''}` }] : []),
                 ...(notif.scheduled_for ? [{ label: 'Scheduled', value: new Date(notif.scheduled_for).toLocaleString() }] : []),
                 ...(notif.sent_at ? [{ label: 'Sent at', value: new Date(notif.sent_at).toLocaleString() }] : []),
                 { label: 'Created',   value: new Date(notif.created_at).toLocaleString() },
@@ -808,7 +853,7 @@ const HistoryRow = ({
               {notif.error_message && (
                 <div className="flex gap-3">
                   <span className="text-muted-foreground w-20 shrink-0">Error</span>
-                  <span className="text-destructive">{notif.error_message}</span>
+                  <span className="text-destructive leading-relaxed">{notif.error_message}</span>
                 </div>
               )}
             </div>
@@ -821,7 +866,7 @@ const HistoryRow = ({
 
 // ─── Stats Cards ─────────────────────────────────────────────────────────────
 
-const StatsRow = ({ notifications }: { notifications: PushNotification[] }) => {
+const StatsRow = ({ notifications, deviceCount }: { notifications: PushNotification[]; deviceCount: number }) => {
   const sent = notifications.filter((n) => n.status === 'sent').length;
   const scheduled = notifications.filter((n) => n.status === 'scheduled').length;
   const drafts = notifications.filter((n) => n.status === 'draft').length;
@@ -830,10 +875,10 @@ const StatsRow = ({ notifications }: { notifications: PushNotification[] }) => {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       {[
-        { label: 'Total Sent',      value: sent,                     icon: <Send size={14} />,       accent: 'hsl(var(--primary))' },
-        { label: 'Devices Reached', value: totalDevices.toLocaleString(), icon: <Smartphone size={14} />, accent: '#0ea5e9'         },
-        { label: 'Drafts',          value: drafts,                   icon: <Clock size={14} />,      accent: '#f59e0b'             },
-        { label: 'Scheduled',       value: scheduled,                icon: <Calendar size={14} />,   accent: '#6366f1'             },
+        { label: 'Total Sent',      value: sent,                          icon: <Send size={14} />,       accent: 'hsl(var(--primary))' },
+        { label: 'Total Delivered', value: totalDevices.toLocaleString(), icon: <CheckCircle2 size={14} />, accent: '#10b981'           },
+        { label: 'Registered Devices', value: deviceCount,               icon: <Smartphone size={14} />, accent: '#0ea5e9'             },
+        { label: 'Scheduled',       value: scheduled + drafts,            icon: <Calendar size={14} />,   accent: '#6366f1'             },
       ].map((card) => (
         <div key={card.label} className="rounded-xl border border-border bg-card px-4 py-3 flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${card.accent}18`, color: card.accent }}>
@@ -849,39 +894,225 @@ const StatsRow = ({ notifications }: { notifications: PushNotification[] }) => {
   );
 };
 
-// ─── Setup Guide ─────────────────────────────────────────────────────────────
+// ─── Expo Setup Guide ─────────────────────────────────────────────────────────
 
-const SetupGuide = () => (
-  <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-    <div className="px-5 py-4 border-b border-border" style={{ background: 'hsl(var(--primary) / 0.04)' }}>
-      <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-        <Megaphone size={15} style={{ color: 'hsl(var(--primary))' }} />
-        Setup Guide — OneSignal
-      </h3>
-      <p className="text-xs text-muted-foreground mt-0.5">Steps to enable live push delivery</p>
-    </div>
-    <div className="px-5 py-4 space-y-4">
-      {[
-        { step: '1', title: 'Create a free OneSignal account', desc: 'Go to onesignal.com → New App → configure Android/iOS platform.' },
-        { step: '2', title: 'Get App ID & REST API Key',       desc: 'OneSignal Dashboard → Settings → Keys & IDs. Copy both values.' },
-        { step: '3', title: 'Add credentials to portal',       desc: 'Add ONESIGNAL_APP_ID and ONESIGNAL_REST_API_KEY as Edge Function secrets.' },
-        { step: '4', title: 'Integrate SDK in mobile app',     desc: 'Install the OneSignal SDK in the mobile app — ~15 minutes. Device tokens register automatically.' },
-        { step: '5', title: "You're live!",                    desc: 'Notifications will be delivered instantly to all registered devices.' },
-      ].map((item) => (
-        <div key={item.step} className="flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 mt-0.5"
-            style={{ background: 'hsl(var(--primary) / 0.12)', color: 'hsl(var(--primary))' }}>
-            {item.step}
+const CODE_SNIPPET = `// In your Expo/React Native app (e.g. App.tsx)
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+async function registerForPushNotifications() {
+  if (!Device.isDevice) return; // real device only
+
+  const { status } = await Notifications.requestPermissionsAsync();
+  if (status !== 'granted') return;
+
+  const token = (await Notifications.getExpoPushTokenAsync({
+    projectId: 'YOUR_EXPO_PROJECT_ID', // from app.json
+  })).data;
+
+  // Upsert token into Supabase
+  await supabase.from('device_tokens').upsert({
+    token,
+    platform: Platform.OS,          // 'ios' or 'android'
+    app_version: Application.nativeApplicationVersion,
+    last_active: new Date().toISOString(),
+  }, { onConflict: 'token' });
+}
+
+// Call on app start:
+useEffect(() => { registerForPushNotifications(); }, []);`;
+
+const ExpoSetupGuide = () => {
+  const [showCode, setShowCode] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(CODE_SNIPPET);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-border" style={{ background: 'hsl(var(--primary) / 0.04)' }}>
+        <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+          <Megaphone size={15} style={{ color: 'hsl(var(--primary))' }} />
+          Mobile App Setup — Expo Push
+        </h3>
+        <p className="text-xs text-muted-foreground mt-0.5">Add this to your React Native app to register devices</p>
+      </div>
+      <div className="px-5 py-4 space-y-4">
+        {[
+          {
+            step: '1', title: 'Install packages',
+            desc: 'Run in your Expo project:',
+            code: 'npx expo install expo-notifications expo-device expo-application',
+          },
+          {
+            step: '2', title: 'Get your Expo Project ID',
+            desc: 'Find it in app.json under extra.eas.projectId, or run: npx expo whoami',
+          },
+          {
+            step: '3', title: 'Register tokens on app start',
+            desc: 'Add the token registration code to your app. Tap "Show code" below.',
+          },
+          {
+            step: '4', title: 'Tokens appear automatically',
+            desc: 'Once the app runs on a real device and permission is granted, tokens show in "Registered Devices" above.',
+          },
+          {
+            step: '5', title: "You're live!",
+            desc: 'Click Send Notification in the portal. Expo routes it to iOS APNs and Android FCM automatically.',
+          },
+        ].map((item) => (
+          <div key={item.step} className="flex items-start gap-3">
+            <div className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 mt-0.5"
+              style={{ background: 'hsl(var(--primary) / 0.12)', color: 'hsl(var(--primary))' }}>
+              {item.step}
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">{item.title}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{item.desc}</p>
+              {item.code && (
+                <code className="mt-1.5 block text-[10px] bg-muted/60 border border-border rounded-lg px-2.5 py-1.5 font-mono text-foreground break-all">
+                  {item.code}
+                </code>
+              )}
+            </div>
           </div>
-          <div>
-            <p className="text-xs font-semibold text-foreground">{item.title}</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{item.desc}</p>
-          </div>
+        ))}
+
+        {/* Code snippet toggle */}
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => setShowCode((v) => !v)}
+            className="flex items-center gap-2 text-xs font-medium transition-colors hover:text-foreground"
+            style={{ color: 'hsl(var(--primary))' }}
+          >
+            <Code2 size={13} />
+            {showCode ? 'Hide code' : 'Show registration code'}
+            {showCode ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
+          {showCode && (
+            <div className="mt-2 relative">
+              <button
+                onClick={handleCopy}
+                className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium bg-background/80 border border-border hover:bg-muted transition-colors z-10"
+              >
+                <Copy size={10} />
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+              <pre className="text-[10px] leading-relaxed bg-muted/40 border border-border rounded-xl p-4 overflow-x-auto font-mono text-foreground whitespace-pre">
+                {CODE_SNIPPET}
+              </pre>
+            </div>
+          )}
         </div>
-      ))}
+      </div>
     </div>
-  </div>
-);
+  );
+};
+
+// ─── Devices Panel ────────────────────────────────────────────────────────────
+
+const DevicesPanel = ({ tokens }: { tokens: DeviceToken[] }) => {
+  const [expanded, setExpanded] = useState(false);
+  const active = tokens.filter((t) => t.is_active);
+  const ios = active.filter((t) => t.platform === 'ios').length;
+  const android = active.filter((t) => t.platform === 'android').length;
+  const other = active.length - ios - android;
+
+  return (
+    <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full px-5 py-4 border-b border-border flex items-center justify-between text-left hover:bg-muted/20 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Smartphone size={14} style={{ color: 'hsl(var(--primary))' }} />
+          <span className="text-sm font-bold text-foreground">Registered Devices</span>
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
+            {active.length}
+          </span>
+        </div>
+        {expanded ? <ChevronUp size={14} className="text-muted-foreground" /> : <ChevronDown size={14} className="text-muted-foreground" />}
+      </button>
+
+      {!expanded && (
+        <div className="px-5 py-3 flex items-center gap-4">
+          {[
+            { label: 'iOS', count: ios, color: 'text-blue-600' },
+            { label: 'Android', count: android, color: 'text-emerald-600' },
+            ...(other > 0 ? [{ label: 'Other', count: other, color: 'text-muted-foreground' }] : []),
+          ].map((item) => (
+            <div key={item.label} className="flex items-center gap-1.5">
+              <span className={`text-sm font-bold ${item.color}`}>{item.count}</span>
+              <span className="text-[11px] text-muted-foreground">{item.label}</span>
+            </div>
+          ))}
+          {active.length === 0 && (
+            <p className="text-xs text-muted-foreground">No devices yet — see setup guide below.</p>
+          )}
+        </div>
+      )}
+
+      {expanded && (
+        <div>
+          {/* Summary row */}
+          <div className="px-5 py-3 border-b border-border/60 flex items-center gap-4 bg-muted/10">
+            {[
+              { label: 'iOS', count: ios, color: 'text-blue-600' },
+              { label: 'Android', count: android, color: 'text-emerald-600' },
+              { label: 'Inactive', count: tokens.length - active.length, color: 'text-muted-foreground' },
+            ].map((item) => (
+              <div key={item.label} className="flex items-center gap-1">
+                <span className={`text-sm font-bold ${item.color}`}>{item.count}</span>
+                <span className="text-[11px] text-muted-foreground">{item.label}</span>
+              </div>
+            ))}
+          </div>
+
+          {tokens.length === 0 ? (
+            <div className="px-5 py-6 text-center">
+              <p className="text-xs text-muted-foreground">No devices registered yet. Follow the setup guide below to connect your mobile app.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border/40 max-h-60 overflow-y-auto">
+              {tokens.slice(0, 50).map((t) => (
+                <div key={t.id} className={`px-4 py-2.5 flex items-center gap-3 ${!t.is_active ? 'opacity-40' : ''}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                        t.platform === 'ios' ? 'bg-blue-100 text-blue-700' :
+                        t.platform === 'android' ? 'bg-emerald-100 text-emerald-700' :
+                        'bg-gray-100 text-gray-600'
+                      }`}>{t.platform}</span>
+                      {t.app_version && <span className="text-[10px] text-muted-foreground">v{t.app_version}</span>}
+                      {t.device_model && <span className="text-[10px] text-muted-foreground truncate">{t.device_model}</span>}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-0.5 font-mono truncate">{t.token.slice(0, 40)}…</p>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap shrink-0">{timeAgo(t.last_active)}</span>
+                </div>
+              ))}
+              {tokens.length > 50 && (
+                <div className="px-4 py-2 text-center text-[10px] text-muted-foreground">
+                  + {tokens.length - 50} more devices
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -904,6 +1135,16 @@ const Notifications = () => {
       if (error) throw error;
       return data as PushNotification[];
     },
+  });
+
+  const { data: deviceTokens = [] } = useQuery({
+    queryKey: ['device-tokens'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('device_tokens').select('*').order('last_active', { ascending: false });
+      if (error) throw error;
+      return data as DeviceToken[];
+    },
+    refetchInterval: 30000, // refresh every 30s
   });
 
   const handleSent = (notif: PushNotification) => {
@@ -963,12 +1204,13 @@ const Notifications = () => {
     });
   }, [notifications, statusFilter, categoryFilter, search]);
 
-  // Category breakdown for history header
   const catCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     notifications.forEach((n) => { const c = n.category ?? 'general'; counts[c] = (counts[c] ?? 0) + 1; });
     return counts;
   }, [notifications]);
+
+  const activeDeviceCount = deviceTokens.filter((t) => t.is_active).length;
 
   return (
     <div className="flex min-h-screen" style={{ background: 'hsl(var(--background))' }}>
@@ -980,7 +1222,7 @@ const Notifications = () => {
           <div>
             <h1 className="text-2xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>Push Notifications</h1>
             <p className="text-sm mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Compose, schedule and track notifications to all app users · {notifications.length} in history
+              Expo Push · {activeDeviceCount} device{activeDeviceCount !== 1 ? 's' : ''} registered · {notifications.length} in history
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2 self-start">
@@ -990,7 +1232,7 @@ const Notifications = () => {
 
         {/* Stats */}
         <div className="mb-6">
-          <StatsRow notifications={notifications} />
+          <StatsRow notifications={notifications} deviceCount={activeDeviceCount} />
         </div>
 
         {/* Main layout */}
@@ -1002,6 +1244,7 @@ const Notifications = () => {
               initialData={composeData}
               onSent={handleSent}
               onSaveTemplate={handleSaveTemplate}
+              onRefetchHistory={refetch}
             />
 
             {/* History */}
@@ -1080,12 +1323,13 @@ const Notifications = () => {
 
           {/* Right sidebar */}
           <div className="space-y-5">
+            <DevicesPanel tokens={deviceTokens} />
             <TemplatesPanel
               onUse={handleUseTemplate}
               savedTemplates={savedTemplates}
               onDelete={handleDeleteTemplate}
             />
-            <SetupGuide />
+            <ExpoSetupGuide />
 
             {/* Writing tips */}
             <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
