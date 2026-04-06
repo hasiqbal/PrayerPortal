@@ -10,96 +10,63 @@ const WRITE_HEADERS = {
   'Prefer': 'return=representation',
 };
 
-const READ_HEADERS = {
-  'Content-Type': 'application/json',
-  'apikey': EXT_KEY,
-};
-
-// Columns we attempt to sync to the external adhkar_groups table.
-// We probe progressively — if the external backend rejects a column, we skip it and retry.
-const SAFE_GROUP_COLS = ['name', 'description', 'prayer_time', 'icon', 'icon_color', 'icon_bg_color', 'badge_text', 'badge_color', 'display_order'];
-
-/** Extract an unknown column name from a PostgREST error response body. */
-function extractUnknownColumn(body: string): string | null {
-  const match = body.match(/Could not find the "([^"]+)" column/);
-  return match ? match[1] : null;
-}
-
 /**
- * PATCH adhkar_groups by name, retrying with fewer columns on unknown-column errors.
- * Returns null if the row was not found on the external backend (so caller can skip quietly).
+ * PATCH all adhkar entries in a group to set a new description.
+ * The app reads the group description from individual adhkar entries,
+ * not from adhkar_groups (which is empty on the external backend).
  */
-async function safePatchGroup(
+async function cascadeDescriptionToEntries(
   groupName: string,
-  payload: Record<string, unknown>,
-): Promise<{ rows: unknown[]; skipped: string[]; notFound: boolean }> {
-  const skipped: string[] = [];
+  description: string | null,
+): Promise<number> {
+  const url = `${EXT_BASE}/adhkar?group_name=eq.${encodeURIComponent(groupName)}`;
+  console.log(`[sync-group] Cascading description to all entries in "${groupName}"`);
 
-  for (let attempt = 0; attempt < 10; attempt++) {
-    // Only include known-safe columns that haven't been skipped
-    const safe: Record<string, unknown> = {};
-    for (const col of SAFE_GROUP_COLS) {
-      if (col in payload && !skipped.includes(col)) safe[col] = payload[col];
-    }
-    if (Object.keys(safe).length === 0) {
-      console.log('[sync-group] No safe columns left to PATCH — skipping group metadata sync.');
-      return { rows: [], skipped, notFound: false };
-    }
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: WRITE_HEADERS,
+    body: JSON.stringify({ description }),
+  });
 
-    const url = `${EXT_BASE}/adhkar_groups?name=eq.${encodeURIComponent(groupName)}`;
-    console.log(`[sync-group] PATCH attempt ${attempt + 1}: ${url} — fields: ${Object.keys(safe).join(', ')}`);
+  const body = await res.text();
+  console.log(`[sync-group] Description cascade response: ${res.status} — ${body.slice(0, 300)}`);
 
-    const res = await fetch(url, { method: 'PATCH', headers: WRITE_HEADERS, body: JSON.stringify(safe) });
-    const body = await res.text();
-    console.log(`[sync-group] PATCH response: ${res.status} — ${body.slice(0, 300)}`);
-
-    if (res.ok) {
-      let rows: unknown[] = [];
-      try { rows = JSON.parse(body); } catch { /* ignore */ }
-      // PostgREST returns [] when no row matched the filter
-      if (Array.isArray(rows) && rows.length === 0) {
-        console.log(`[sync-group] No row with name="${groupName}" on external backend — skipping insert.`);
-        return { rows: [], skipped, notFound: true };
-      }
-      return { rows, skipped, notFound: false };
-    }
-
-    const unknownCol = extractUnknownColumn(body);
-    if (unknownCol) {
-      console.log(`[sync-group] Column "${unknownCol}" not found on external backend — skipping it.`);
-      skipped.push(unknownCol);
-      continue;
-    }
-
-    // Hard fail for non-column errors
-    throw new Error(`PATCH adhkar_groups failed: ${res.status} — ${body}`);
+  if (!res.ok) {
+    throw new Error(`Description cascade failed: ${res.status} — ${body}`);
   }
 
-  throw new Error('Too many retries on safePatchGroup');
+  let rows: unknown[] = [];
+  try { rows = JSON.parse(body); } catch { /* ignore */ }
+  return Array.isArray(rows) ? rows.length : 0;
 }
 
 /**
- * Cascade-rename: update group_name (and optionally prayer_time) on all
+ * Cascade-rename: update group_name (and optionally prayer_time + description) on all
  * adhkar entries that currently belong to oldGroupName.
  */
 async function cascadeAdhkarEntries(
   oldGroupName: string,
   newGroupName: string,
   newPrayerTime?: string,
+  newDescription?: string | null,
 ): Promise<number> {
-  const patch: Record<string, string> = { group_name: newGroupName };
+  const patch: Record<string, unknown> = { group_name: newGroupName };
   if (newPrayerTime) patch.prayer_time = newPrayerTime;
+  if (newDescription !== undefined) patch.description = newDescription;
 
   const url = `${EXT_BASE}/adhkar?group_name=eq.${encodeURIComponent(oldGroupName)}`;
   console.log(`[sync-group] Cascading adhkar entries: "${oldGroupName}" → "${newGroupName}"`);
 
   const res = await fetch(url, { method: 'PATCH', headers: WRITE_HEADERS, body: JSON.stringify(patch) });
+  const body = await res.text();
+  console.log(`[sync-group] Cascade rename response: ${res.status} — ${body.slice(0, 200)}`);
+
   if (!res.ok) {
-    const body = await res.text();
     throw new Error(`Cascade adhkar update failed: ${res.status} — ${body}`);
   }
 
-  const rows = await res.json();
+  let rows: unknown[] = [];
+  try { rows = JSON.parse(body); } catch { /* ignore */ }
   return Array.isArray(rows) ? rows.length : 0;
 }
 
@@ -112,9 +79,10 @@ Deno.serve(async (req: Request) => {
       payload?: Record<string, unknown>;
       oldGroupName?: string;     // present when renaming
       newPrayerTime?: string;    // present when prayer time changed
+      descriptionOnly?: boolean; // true = only cascade description to adhkar entries
     };
 
-    const { groupName, payload = {}, oldGroupName, newPrayerTime } = body;
+    const { groupName, payload = {}, oldGroupName, newPrayerTime, descriptionOnly } = body;
 
     if (!groupName) {
       return new Response(JSON.stringify({ error: 'groupName is required' }), {
@@ -125,10 +93,30 @@ Deno.serve(async (req: Request) => {
 
     const results: Record<string, unknown> = {};
 
-    // ── 1. Cascade rename: update group_name on adhkar entries ───────────
+    // ── 1. Description-only sync: cascade to all adhkar entries ───────────
+    // The external adhkar_groups table is empty — the app reads description
+    // from individual adhkar entries, so we must cascade it there.
+    if (descriptionOnly) {
+      const description = payload.description !== undefined ? payload.description as string | null : null;
+      try {
+        const count = await cascadeDescriptionToEntries(groupName, description);
+        results.descriptionCascaded = count;
+        console.log(`[sync-group] Cascaded description to ${count} entries in "${groupName}"`);
+      } catch (err) {
+        results.descriptionError = String(err);
+        console.error('[sync-group] Description cascade error (non-fatal):', err);
+      }
+      return new Response(JSON.stringify({ ok: true, ...results }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── 2. Cascade rename: update group_name on adhkar entries ────────────
     if (oldGroupName && oldGroupName !== groupName) {
       try {
-        const count = await cascadeAdhkarEntries(oldGroupName, groupName, newPrayerTime);
+        // Also carry description if provided
+        const descPayload = payload.description !== undefined ? payload.description as string | null : undefined;
+        const count = await cascadeAdhkarEntries(oldGroupName, groupName, newPrayerTime, descPayload);
         results.cascadedEntries = count;
         console.log(`[sync-group] Cascaded ${count} adhkar entries: "${oldGroupName}" → "${groupName}"`);
       } catch (cascadeErr) {
@@ -137,25 +125,21 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ── 2. Sync group metadata via PATCH only (no INSERT) ─────────────────
-    // We never INSERT into the external adhkar_groups table because:
-    //   a) It may have NOT NULL constraints we can't satisfy (e.g. id)
-    //   b) Groups are managed by the app developer — we only update existing rows
-    if (Object.keys(payload).length > 0) {
+    // ── 3. Sync any additional metadata fields to adhkar entries ──────────
+    // Since adhkar_groups on external backend is empty, we push metadata
+    // (description, prayer_time) down to individual entries.
+    const entryPatch: Record<string, unknown> = {};
+    if (payload.description !== undefined) entryPatch.description = payload.description;
+    if (newPrayerTime && !oldGroupName) entryPatch.prayer_time = newPrayerTime;
+
+    if (Object.keys(entryPatch).length > 0 && !oldGroupName) {
+      // No rename — just patch entries in this group with updated fields
       try {
-        const { rows, skipped, notFound } = await safePatchGroup(groupName, payload);
-        results.groupRows = rows;
-        if (skipped.length > 0) results.skippedColumns = skipped;
-        if (notFound) {
-          results.notFound = true;
-          console.log(`[sync-group] Group "${groupName}" not in external backend — skipped metadata sync.`);
-        } else {
-          console.log(`[sync-group] Patched group "${groupName}" on external backend. Skipped cols: ${skipped.join(', ') || 'none'}`);
-        }
+        const count = await cascadeDescriptionToEntries(groupName, entryPatch.description as string | null ?? null);
+        results.entriesPatched = count;
       } catch (patchErr) {
-        // Non-fatal: log and return partial success
-        results.patchError = String(patchErr);
-        console.error('[sync-group] Patch error (non-fatal):', patchErr);
+        results.entryPatchError = String(patchErr);
+        console.error('[sync-group] Entry patch error (non-fatal):', patchErr);
       }
     }
 

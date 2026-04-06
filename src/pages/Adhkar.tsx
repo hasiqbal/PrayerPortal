@@ -826,9 +826,13 @@ const Adhkar = () => {
     if (meta?.id) {
       try {
         await updateAdhkarGroup(meta.id, { description });
-        // Also sync description to external backend via Edge Function
+        // Cascade description to all adhkar entries on external backend
+        // (external adhkar_groups table is empty; app reads description from individual entries)
         supabase.functions.invoke('sync-group', {
-          body: { groupName, payload: { description } },
+          body: { groupName, payload: { description }, descriptionOnly: true },
+        }).then((res) => {
+          const count = (res.data as Record<string, unknown>)?.descriptionCascaded;
+          if (typeof count === 'number') console.log(`[Adhkar] Cascaded description to ${count} entries.`);
         }).catch((e) => console.warn('[Adhkar] Description sync (non-critical):', e));
         toast.success('Group description updated.');
       } catch (err) {
