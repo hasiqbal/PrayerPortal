@@ -1,35 +1,35 @@
-
 import { useState, useEffect } from 'react';
 import { Database, RefreshCw, CheckCircle2, Table2, ExternalLink, Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import Sidebar from '@/components/layout/Sidebar';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 
-const BASE_URL = 'https://ucpmwygyuvbfehjpucpm.backend.onspace.ai';
-const REST_URL = `${BASE_URL}/rest/v1`;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const REST_URL = `${SUPABASE_URL}/rest/v1`;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-const EXT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjcG13eWd5dXZiZmVoanB1Y3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NDgxMTksImV4cCI6MjA1OTQyNDExOX0.i8tlNr0s9g7D7VhWKUFxXBwU_YhWEarUOBsmCIi-lEA';
-const THIS_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const THIS_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-// Known tables with their column definitions derived from live schema
 const TABLES: TableDef[] = [
   {
-    name: 'sunnah_reminders',
-    description: 'Sunnah practices and reminders for the app',
-    endpoint: `${REST_URL}/sunnah_reminders`,
-    apiKey: EXT_KEY,
-    apiBase: REST_URL,
+    name: 'adhkar',
+    description: 'Islamic remembrances and supplications',
     columns: [
       { name: 'id', type: 'uuid', notes: 'Primary key' },
-      { name: 'title', type: 'text', notes: 'Short English title' },
-      { name: 'detail', type: 'text', notes: 'Nullable — explanation / hadith text' },
-      { name: 'reference', type: 'text', notes: 'Nullable — e.g. Bukhari 245' },
-      { name: 'icon', type: 'text', notes: 'Nullable — icon name or image URL' },
-      { name: 'friday_only', type: 'boolean', notes: 'Show only on Fridays' },
-      { name: 'display_order', type: 'integer', notes: 'Sort order' },
+      { name: 'title', type: 'text', notes: 'English title' },
+      { name: 'arabic_title', type: 'text', notes: 'Nullable — Arabic name' },
+      { name: 'arabic', type: 'text', notes: 'Full Arabic text' },
+      { name: 'transliteration', type: 'text', notes: 'Nullable' },
+      { name: 'translation', type: 'text', notes: 'Nullable' },
+      { name: 'reference', type: 'text', notes: 'Nullable' },
+      { name: 'count', type: 'text', notes: 'Repetitions e.g. "3"' },
+      { name: 'prayer_time', type: 'text', notes: 'Slug e.g. after-fajr' },
+      { name: 'group_name', type: 'text', notes: 'Nullable' },
+      { name: 'group_order', type: 'integer', notes: 'Nullable' },
+      { name: 'display_order', type: 'integer', notes: 'Nullable' },
       { name: 'is_active', type: 'boolean', notes: 'Visible in app' },
+      { name: 'description', type: 'text', notes: 'Nullable' },
+      { name: 'file_url', type: 'text', notes: 'Nullable' },
       { name: 'created_at', type: 'timestamptz', notes: 'Auto-set' },
       { name: 'updated_at', type: 'timestamptz', notes: 'Auto-set' },
     ],
@@ -37,9 +37,6 @@ const TABLES: TableDef[] = [
   {
     name: 'prayer_times',
     description: 'Daily prayer times for the entire year',
-    endpoint: `${REST_URL}/prayer_times`,
-    apiKey: EXT_KEY,
-    apiBase: REST_URL,
     columns: [
       { name: 'id', type: 'uuid', notes: 'Primary key' },
       { name: 'month', type: 'integer', notes: '1–12' },
@@ -58,33 +55,8 @@ const TABLES: TableDef[] = [
       { name: 'maghrib_jamat', type: 'time', notes: 'Nullable' },
       { name: 'isha', type: 'time', notes: '' },
       { name: 'isha_jamat', type: 'time', notes: 'Nullable' },
-      { name: "jumu_ah_1", type: 'time', notes: 'Nullable' },
-      { name: "jumu_ah_2", type: 'time', notes: 'Nullable' },
-      { name: 'created_at', type: 'timestamptz', notes: 'Auto-set' },
-      { name: 'updated_at', type: 'timestamptz', notes: 'Auto-set' },
-    ],
-  },
-  {
-    name: 'adhkar',
-    description: 'Islamic remembrances and supplications',
-    endpoint: `${REST_URL}/adhkar`,
-    apiKey: EXT_KEY,
-    apiBase: REST_URL,
-    columns: [
-      { name: 'id', type: 'uuid', notes: 'Primary key' },
-      { name: 'title', type: 'text', notes: 'Name of the wird' },
-      { name: 'arabic_title', type: 'text', notes: 'Nullable — Arabic name' },
-      { name: 'arabic', type: 'text', notes: 'Full Arabic text' },
-      { name: 'transliteration', type: 'text', notes: 'Nullable' },
-      { name: 'translation', type: 'text', notes: 'Nullable' },
-      { name: 'reference', type: 'text', notes: 'Nullable — hadith/quran ref' },
-      { name: 'count', type: 'text', notes: 'Repetitions string e.g. "3"' },
-      { name: 'prayer_time', type: 'text', notes: 'Slug e.g. after-fajr' },
-      { name: 'group_name', type: 'text', notes: 'Nullable — e.g. Wird al-Latif' },
-      { name: 'group_order', type: 'integer', notes: 'Nullable — group sort order' },
-      { name: 'display_order', type: 'integer', notes: 'Nullable — item sort order' },
-      { name: 'sections', type: 'text', notes: 'Nullable — JSON sections' },
-      { name: 'is_active', type: 'boolean', notes: 'Visible in app' },
+      { name: 'jumu_ah_1', type: 'time', notes: 'Nullable' },
+      { name: 'jumu_ah_2', type: 'time', notes: 'Nullable' },
       { name: 'created_at', type: 'timestamptz', notes: 'Auto-set' },
       { name: 'updated_at', type: 'timestamptz', notes: 'Auto-set' },
     ],
@@ -92,62 +64,93 @@ const TABLES: TableDef[] = [
   {
     name: 'announcements',
     description: 'Masjid announcements displayed in the app',
-    endpoint: `${THIS_URL}/rest/v1/announcements`,
-    apiKey: THIS_KEY,
-    apiBase: `${THIS_URL}/rest/v1`,
     columns: [
       { name: 'id', type: 'uuid', notes: 'Primary key' },
       { name: 'title', type: 'text', notes: 'Announcement heading' },
-      { name: 'body', type: 'text', notes: 'Nullable — full announcement text' },
+      { name: 'body', type: 'text', notes: 'Nullable — HTML content' },
       { name: 'is_active', type: 'boolean', notes: 'Visible in app' },
       { name: 'display_order', type: 'integer', notes: 'Sort order' },
+      { name: 'link_url', type: 'text', notes: 'Nullable' },
+      { name: 'image_url', type: 'text', notes: 'Nullable' },
+      { name: 'created_at', type: 'timestamptz', notes: 'Auto-set' },
+      { name: 'updated_at', type: 'timestamptz', notes: 'Auto-set' },
+    ],
+  },
+  {
+    name: 'sunnah_reminders',
+    description: 'Sunnah practices and reminders for the app',
+    columns: [
+      { name: 'id', type: 'uuid', notes: 'Primary key' },
+      { name: 'title', type: 'text', notes: 'Short English title' },
+      { name: 'arabic_title', type: 'text', notes: 'Nullable' },
+      { name: 'arabic', type: 'text', notes: 'Nullable' },
+      { name: 'transliteration', type: 'text', notes: 'Nullable' },
+      { name: 'translation', type: 'text', notes: 'Nullable' },
+      { name: 'description', type: 'text', notes: 'Nullable' },
+      { name: 'reference', type: 'text', notes: 'Nullable' },
+      { name: 'count', type: 'text', notes: 'Repetitions' },
+      { name: 'category', type: 'text', notes: 'e.g. prayer, fasting' },
+      { name: 'group_name', type: 'text', notes: 'Nullable' },
+      { name: 'display_order', type: 'integer', notes: 'Sort order' },
+      { name: 'is_active', type: 'boolean', notes: 'Visible in app' },
       { name: 'created_at', type: 'timestamptz', notes: 'Auto-set' },
       { name: 'updated_at', type: 'timestamptz', notes: 'Auto-set' },
     ],
   },
   {
     name: 'adhkar_groups',
-    description: 'Group metadata for the adhkar (icons, colors, badges)',
-    endpoint: `${THIS_URL}/rest/v1/adhkar_groups`,
-    apiKey: THIS_KEY,
-    apiBase: `${THIS_URL}/rest/v1`,
+    description: 'Group metadata for adhkar (icons, colors, badges)',
     columns: [
       { name: 'id', type: 'uuid', notes: 'Primary key' },
       { name: 'name', type: 'text', notes: 'Unique group name' },
-      { name: 'prayer_time', type: 'text', notes: 'Nullable — slug e.g. after-fajr' },
-      { name: 'icon', type: 'text', notes: 'Emoji or icon identifier' },
-      { name: 'icon_color', type: 'text', notes: 'Hex foreground colour' },
-      { name: 'icon_bg_color', type: 'text', notes: 'Hex background colour' },
+      { name: 'prayer_time', type: 'text', notes: 'Nullable — slug' },
+      { name: 'icon', type: 'text', notes: 'Emoji' },
+      { name: 'icon_color', type: 'text', notes: 'Hex foreground' },
+      { name: 'icon_bg_color', type: 'text', notes: 'Hex background' },
       { name: 'badge_text', type: 'text', notes: 'Nullable — pill label' },
-      { name: 'badge_color', type: 'text', notes: 'Hex badge colour' },
+      { name: 'badge_color', type: 'text', notes: 'Hex' },
       { name: 'description', type: 'text', notes: 'Nullable' },
       { name: 'display_order', type: 'integer', notes: 'Sort order' },
       { name: 'created_at', type: 'timestamptz', notes: 'Auto-set' },
-      { name: 'updated_at', type: 'timestamptz', notes: 'Auto-set' },
+    ],
+  },
+  {
+    name: 'device_tokens',
+    description: 'Expo push notification tokens from registered devices',
+    columns: [
+      { name: 'id', type: 'uuid', notes: 'Primary key' },
+      { name: 'token', type: 'text', notes: 'Unique Expo push token' },
+      { name: 'platform', type: 'text', notes: 'ios | android | unknown' },
+      { name: 'app_version', type: 'text', notes: 'Nullable' },
+      { name: 'device_model', type: 'text', notes: 'Nullable' },
+      { name: 'is_active', type: 'boolean', notes: 'Active status' },
+      { name: 'registered_at', type: 'timestamptz', notes: 'Auto-set' },
+      { name: 'last_active', type: 'timestamptz', notes: 'Auto-set' },
+    ],
+  },
+  {
+    name: 'push_notifications',
+    description: 'Push notification history and delivery stats',
+    columns: [
+      { name: 'id', type: 'uuid', notes: 'Primary key' },
+      { name: 'title', type: 'text', notes: 'Notification title' },
+      { name: 'body', type: 'text', notes: 'Notification message' },
+      { name: 'image_url', type: 'text', notes: 'Nullable' },
+      { name: 'link_url', type: 'text', notes: 'Nullable' },
+      { name: 'audience', type: 'text', notes: 'all | active | new' },
+      { name: 'status', type: 'text', notes: 'draft | sent | failed | scheduled' },
+      { name: 'sent_at', type: 'timestamptz', notes: 'Nullable' },
+      { name: 'recipient_count', type: 'integer', notes: 'Nullable' },
+      { name: 'error_message', type: 'text', notes: 'Nullable' },
+      { name: 'category', type: 'text', notes: 'prayer | event | general…' },
+      { name: 'created_at', type: 'timestamptz', notes: 'Auto-set' },
     ],
   },
 ];
 
-interface Column {
-  name: string;
-  type: string;
-  notes: string;
-}
-
-interface TableDef {
-  name: string;
-  description: string;
-  endpoint: string;
-  apiKey: string;
-  apiBase: string;
-  columns: Column[];
-}
-
-interface TableStats {
-  count: number | null;
-  loading: boolean;
-  error: boolean;
-}
+interface Column { name: string; type: string; notes: string; }
+interface TableDef { name: string; description: string; columns: Column[]; }
+interface TableStats { count: number | null; loading: boolean; error: boolean; }
 
 const TYPE_COLORS: Record<string, string> = {
   uuid: 'bg-violet-100 text-violet-700',
@@ -158,269 +161,180 @@ const TYPE_COLORS: Record<string, string> = {
   boolean: 'bg-rose-100 text-rose-700',
 };
 
-// ─── Copy Button ─────────────────────────────────────────────────────────────
 const CopyButton = ({ text }: { text: string }) => {
   const [copied, setCopied] = useState(false);
-  const handle = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  };
   return (
-    <button onClick={handle} className="p-1 rounded hover:bg-white/20 transition-colors" title="Copy">
+    <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1800); }} className="p-1 rounded hover:bg-white/20 transition-colors" title="Copy">
       {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
     </button>
   );
 };
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
 const CloudData = () => {
-
   const [stats, setStats] = useState<Record<string, TableStats>>({});
   const [expandedTable, setExpandedTable] = useState<string | null>('prayer_times');
-  const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const loadStats = async () => {
     setIsRefreshing(true);
-    const results: Record<string, TableStats> = {};
-
     await Promise.all(
       TABLES.map(async (t) => {
-        results[t.name] = { count: null, loading: true, error: false };
-        setStats((prev) => ({ ...prev, [t.name]: results[t.name] }));
+        setStats((prev) => ({ ...prev, [t.name]: { count: null, loading: true, error: false } }));
         try {
-          const res = await fetch(`${t.apiBase}/${t.name}?select=count`, {
-            headers: { 'Content-Type': 'application/json', 'apikey': t.apiKey },
-          });
-          if (!res.ok) throw new Error();
-          const data: { count: number }[] = await res.json();
-          results[t.name] = { count: data[0]?.count ?? 0, loading: false, error: false };
+          const { count, error } = await supabase.from(t.name).select('*', { count: 'exact', head: true });
+          if (error) throw error;
+          setStats((prev) => ({ ...prev, [t.name]: { count: count ?? 0, loading: false, error: false } }));
         } catch {
-          results[t.name] = { count: null, loading: false, error: true };
+          setStats((prev) => ({ ...prev, [t.name]: { count: null, loading: false, error: true } }));
         }
-        setStats((prev) => ({ ...prev, [t.name]: results[t.name] }));
       })
     );
-
     setIsRefreshing(false);
     toast.success('Database stats refreshed');
-    console.log('Stats loaded:', results);
   };
 
-  useEffect(() => {
-    loadStats();
-  // The 'react-hooks/exhaustive-deps' rule is an ESLint rule.
-  // The error message "Definition for rule 'react-hooks/exhaustive-deps' was not found"
-  // indicates that ESLint is attempting to use this rule but cannot find its definition,
-  // likely due to a missing ESLint configuration or plugin (`eslint-plugin-react-hooks`).
-  // Removing the `eslint-disable-next-line` comment resolves the syntax error
-  // in the sense that the comment itself is not a TS syntax error, but rather an ESLint issue.
-  // From a pure TypeScript syntax perspective, the code is valid even with the comment.
-  // However, since the error message specifically points to the rule not being found,
-  // the most direct "fix" in the context of *syntax correction* (even if the original
-  // problem is ESLint config related) is to remove the non-functional ESLint directive.
-  // If the ESLint setup were correct, the comment would suppress a warning, not cause an error about the rule definition.
-  // For the purpose of providing a "corrected file with syntax issues resolved"
-  // and given the error message, removing a non-functional ESLint directive is the
-  // most appropriate action to prevent the reported error from occurring.
-  }, [refreshKey]);
+  useEffect(() => { loadStats(); }, []);
 
   const totalRows = Object.values(stats).reduce((sum, s) => sum + (s.count ?? 0), 0);
 
   return (
-    <div className="flex min-h-screen" style={{ background: 'hsl(var(--background))' }}>
+    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
       <Sidebar />
+      <main className="flex-1 overflow-x-auto pt-14 md:pt-0">
 
-      <main className="flex-1 p-8 overflow-x-auto">
-
-        {/* Page header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center shadow-sm"
-              style={{ background: 'hsl(var(--primary))' }}
-            >
-              <Database size={20} style={{ color: 'hsl(var(--primary-foreground))' }} />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>
-                Cloud Data
-              </h1>
-              <p className="text-sm mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                {TABLES.length} tables · {totalRows} total rows
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setRefreshKey((k) => k + 1)}
-            disabled={isRefreshing}
-            className="gap-2"
-          >
-            <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
-            Refresh Stats
-          </Button>
-        </div>
-
-        {/* Connection card */}
-        <div
-          className="rounded-xl p-5 mb-6 shadow-sm"
-          style={{ background: 'hsl(var(--primary))' }}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <CheckCircle2 size={15} className="text-emerald-400" />
-                <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
-                  Connected · Live
-                </span>
+        {/* Banner */}
+        <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
+                <Database size={20} className="text-[hsl(142_60%_32%)]" />
               </div>
-              <p className="text-xs font-semibold mb-3" style={{ color: 'hsl(var(--primary-foreground) / 0.6)' }}>
-                Database Endpoint
-              </p>
-              <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2">
-                <code className="text-xs font-mono" style={{ color: 'hsl(var(--primary-foreground))' }}>
-                  {BASE_URL}
-                </code>
-                <CopyButton text={BASE_URL} />
+              <div>
+                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">Cloud Data</h1>
+                <p className="text-xs text-muted-foreground mt-0.5">{TABLES.length} tables · {totalRows.toLocaleString()} total rows</p>
               </div>
             </div>
-            <a
-              href={`${REST_URL}/`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors whitespace-nowrap"
-              style={{ color: 'hsl(var(--primary-foreground))' }}
-            >
-              <ExternalLink size={12} />
-              Open API Docs
-            </a>
-          </div>
-
-          {/* REST URL */}
-          <div className="mt-3">
-            <p className="text-xs font-semibold mb-1.5" style={{ color: 'hsl(var(--primary-foreground) / 0.6)' }}>
-              REST API Base URL
-            </p>
-            <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2">
-              <code className="text-xs font-mono" style={{ color: 'hsl(var(--primary-foreground))' }}>
-                {REST_URL}
-              </code>
-              <CopyButton text={REST_URL} />
-            </div>
+            <Button variant="outline" size="sm" onClick={loadStats} disabled={isRefreshing} className="gap-2">
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} /> Refresh Stats
+            </Button>
           </div>
         </div>
 
-        {/* Tables */}
-        <div className="space-y-4">
-          {TABLES.map((table) => {
-            const s = stats[table.name];
-            const isExpanded = expandedTable === table.name;
-
-            return (
-              <div
-                key={table.name}
-                className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"
-              >
-                {/* Table header row */}
-                <button
-                  className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-secondary/30 transition-colors"
-                  onClick={() => setExpandedTable(isExpanded ? null : table.name)}
-                >
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                    style={{ background: 'hsl(var(--accent) / 0.15)' }}
-                  >
-                    <Table2 size={16} style={{ color: 'hsl(var(--accent))' }} />
+        <div className="px-4 sm:px-8 py-6 space-y-4">
+          {/* Connection card */}
+          <div className="rounded-2xl overflow-hidden shadow-sm" style={{ background: 'hsl(var(--primary))' }}>
+            <div className="px-6 py-5">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Connected · Live</span>
                   </div>
+                  <p className="text-[10px] font-semibold mb-2" style={{ color: 'hsl(var(--primary-foreground) / 0.6)' }}>Supabase Database</p>
+                  <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2">
+                    <code className="text-xs font-mono text-white">{SUPABASE_URL}</code>
+                    <CopyButton text={SUPABASE_URL} />
+                  </div>
+                </div>
+                <a href={`${REST_URL}/`} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 transition-colors text-white whitespace-nowrap">
+                  <ExternalLink size={12} /> API Docs
+                </a>
+              </div>
+              <div className="mt-4">
+                <p className="text-[10px] font-semibold mb-1.5" style={{ color: 'hsl(var(--primary-foreground) / 0.6)' }}>REST Base URL</p>
+                <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2">
+                  <code className="text-xs font-mono text-white">{REST_URL}</code>
+                  <CopyButton text={REST_URL} />
+                </div>
+              </div>
+              <div className="mt-3">
+                <p className="text-[10px] font-semibold mb-1.5" style={{ color: 'hsl(var(--primary-foreground) / 0.6)' }}>Anon Key</p>
+                <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2">
+                  <code className="text-xs font-mono text-white truncate max-w-xs">{SUPABASE_ANON_KEY.slice(0, 40)}…</code>
+                  <CopyButton text={SUPABASE_ANON_KEY} />
+                </div>
+              </div>
+            </div>
+          </div>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <code className="text-sm font-bold font-mono" style={{ color: 'hsl(var(--foreground))' }}>
-                        {table.name}
-                      </code>
-                      <Badge variant="secondary" className="text-xs font-normal">
-                        {table.columns.length} columns
-                      </Badge>
+          {/* Stats summary */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {TABLES.slice(0, 4).map((t) => {
+              const s = stats[t.name];
+              return (
+                <div key={t.name} className="bg-white rounded-xl border border-[hsl(140_20%_88%)] px-4 py-3">
+                  <p className="text-2xl font-bold text-[hsl(150_30%_12%)] tabular-nums">
+                    {s?.loading ? <span className="text-base text-muted-foreground animate-pulse">…</span> : s?.error ? <span className="text-sm text-destructive">Err</span> : (s?.count?.toLocaleString() ?? '—')}
+                  </p>
+                  <p className="text-xs font-mono text-muted-foreground mt-0.5 truncate">{t.name}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Tables */}
+          <div className="space-y-3">
+            {TABLES.map((table) => {
+              const s = stats[table.name];
+              const isExpanded = expandedTable === table.name;
+              return (
+                <div key={table.name} className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white shadow-sm overflow-hidden">
+                  <button className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-[hsl(142_50%_97%)] transition-colors" onClick={() => setExpandedTable(isExpanded ? null : table.name)}>
+                    <div className="w-9 h-9 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
+                      <Table2 size={16} className="text-[hsl(142_60%_32%)]" />
                     </div>
-                    <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      {table.description}
-                    </p>
-                  </div>
-
-                  {/* Row count */}
-                  <div className="text-right shrink-0">
-                    {s?.loading ? (
-                      <span className="text-xs text-muted-foreground animate-pulse">Loading…</span>
-                    ) : s?.error ? (
-                      <span className="text-xs text-destructive">Error</span>
-                    ) : (
-                      <span className="text-xl font-bold tabular-nums" style={{ color: 'hsl(var(--accent))' }}>
-                        {s?.count?.toLocaleString() ?? '—'}
-                      </span>
-                    )}
-                    <p className="text-xs text-muted-foreground">rows</p>
-                  </div>
-
-                  <div className="text-muted-foreground ml-1 text-xs shrink-0">
-                    {isExpanded ? '▲' : '▼'}
-                  </div>
-                </button>
-
-                {/* Expanded column schema */}
-                {isExpanded && (
-                  <div className="border-t border-border">
-                    {/* REST endpoint */}
-                    <div className="px-5 py-3 border-b border-border" style={{ background: 'hsl(var(--muted) / 0.4)' }}>
-                      <p className="text-xs font-semibold text-muted-foreground mb-1">REST Endpoint</p>
+                    <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <code className="text-xs font-mono" style={{ color: 'hsl(var(--foreground))' }}>
-                          {table.endpoint}
-                        </code>
-                        <CopyButton text={table.endpoint} />
+                        <code className="text-sm font-bold font-mono text-[hsl(150_30%_12%)]">{table.name}</code>
+                        <Badge variant="secondary" className="text-[10px] font-normal">{table.columns.length} columns</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">{table.description}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {s?.loading ? <span className="text-xs text-muted-foreground animate-pulse">…</span> : s?.error ? <span className="text-xs text-destructive">Error</span> : <span className="text-xl font-bold tabular-nums text-[hsl(142_60%_32%)]">{s?.count?.toLocaleString() ?? '—'}</span>}
+                      <p className="text-[10px] text-muted-foreground">rows</p>
+                    </div>
+                    <div className="text-muted-foreground ml-1 text-xs shrink-0">{isExpanded ? '▲' : '▼'}</div>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t border-[hsl(140_20%_88%)]">
+                      <div className="px-5 py-3 border-b border-[hsl(140_20%_88%)] bg-[hsl(140_30%_97%)]">
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">REST Endpoint</p>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs font-mono text-[hsl(150_30%_12%)]">{REST_URL}/{table.name}</code>
+                          <button onClick={() => { navigator.clipboard.writeText(`${REST_URL}/${table.name}`); toast.success('Copied'); }} className="p-1 rounded hover:bg-[hsl(140_20%_88%)]"><Copy size={12} className="text-muted-foreground" /></button>
+                        </div>
+                      </div>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-[hsl(140_20%_88%)] bg-[hsl(140_30%_97%)]">
+                            <th className="px-5 py-2.5 text-left text-xs font-semibold text-muted-foreground">Column</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Type</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {table.columns.map((col, idx) => (
+                            <tr key={col.name} className={`border-b border-[hsl(140_20%_88%)]/50 last:border-0 hover:bg-[hsl(142_50%_97%)] transition-colors ${idx % 2 === 0 ? '' : 'bg-[hsl(140_30%_97%)]/40'}`}>
+                              <td className="px-5 py-2.5"><code className="text-xs font-mono font-semibold text-[hsl(150_30%_12%)]">{col.name}</code></td>
+                              <td className="px-4 py-2.5"><span className={`inline-block px-2 py-0.5 rounded text-xs font-mono font-medium ${TYPE_COLORS[col.type] ?? 'bg-gray-100 text-gray-600'}`}>{col.type}</span></td>
+                              <td className="px-4 py-2.5 text-xs text-muted-foreground">{col.notes || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="px-5 py-3 border-t border-[hsl(140_20%_88%)] bg-[hsl(140_30%_97%)] flex items-center gap-3">
+                        <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                        <p className="text-xs text-muted-foreground">RLS enabled · anon read/write policies active</p>
                       </div>
                     </div>
-
-                    {/* Column table */}
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border" style={{ background: 'hsl(var(--muted) / 0.3)' }}>
-                          <th className="px-5 py-2.5 text-left text-xs font-semibold text-muted-foreground">Column</th>
-                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Type</th>
-                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Notes</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {table.columns.map((col, idx) => (
-                          <tr
-                            key={col.name}
-                            className="border-b border-border last:border-0 transition-colors hover:bg-secondary/20"
-                            style={{ background: idx % 2 === 0 ? 'transparent' : 'hsl(var(--muted) / 0.15)' }}
-                          >
-                            <td className="px-5 py-2.5">
-                              <code className="text-xs font-mono font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                                {col.name}
-                              </code>
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <span className={`inline-block px-2 py-0.5 rounded text-xs font-mono font-medium ${TYPE_COLORS[col.type] ?? 'bg-gray-100 text-gray-600'}`}>
-                                {col.type}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                              {col.notes || '—'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </main>
     </div>

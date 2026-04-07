@@ -1070,18 +1070,24 @@ const SunnahReminders = () => {
   };
 
   return (
-    <div className="flex min-h-screen" style={{ background: 'hsl(var(--background))' }}>
+    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
       <Sidebar />
 
-      <main className="flex-1 p-4 sm:p-8 overflow-x-auto pt-[4.5rem] md:pt-8">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3">
-          <div>
-            <h1 className="text-2xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>Sunnah Reminders</h1>
-            <p className="text-sm mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              {reminders.length} reminder{reminders.length !== 1 ? 's' : ''} · {groups.length} groups · drag handles to reorder
-            </p>
-          </div>
+      <main className="flex-1 overflow-x-auto pt-14 md:pt-0">
+        {/* Banner */}
+        <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
+                <Star size={20} className="text-[hsl(142_60%_32%)]" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">Sunnah Reminders</h1>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {reminders.length} reminder{reminders.length !== 1 ? 's' : ''} · {groups.length} groups · drag handles to reorder
+                </p>
+              </div>
+            </div>
           <div className="flex items-center gap-2 flex-wrap">
             {/* Bulk Edit Descriptions */}
             <Button variant="outline" size="sm" onClick={handleBulkOpen} className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50">
@@ -1111,8 +1117,12 @@ const SunnahReminders = () => {
           </div>
         </div>
 
+          </div>
+        </div>
+
+        <div className="px-4 sm:px-8 py-5">
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 mb-6">
+        <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 mb-5">
           <div className="relative flex-1 min-w-[200px] max-w-xs">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reminders…" className="pl-9 h-9 text-sm" />
@@ -1139,7 +1149,7 @@ const SunnahReminders = () => {
 
         {/* Content */}
         {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-52 gap-3 text-muted-foreground rounded-xl border border-border bg-card">
+          <div className="flex flex-col items-center justify-center h-52 gap-3 text-muted-foreground rounded-2xl border-2 border-dashed border-[hsl(140_20%_88%)] bg-white">
             <Star size={32} className="opacity-30" />
             <p className="text-sm">{reminders.length === 0 ? 'No sunnah reminders yet. Add your first one!' : 'No results match your search.'}</p>
             {reminders.length === 0 && (
@@ -1186,6 +1196,7 @@ const SunnahReminders = () => {
             })}
           </div>
         )}
+        </div>
       </main>
 
       <SunnahReminderModal

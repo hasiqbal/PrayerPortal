@@ -1213,30 +1213,35 @@ const Notifications = () => {
   const activeDeviceCount = deviceTokens.filter((t) => t.is_active).length;
 
   return (
-    <div className="flex min-h-screen" style={{ background: 'hsl(var(--background))' }}>
+    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
       <Sidebar />
 
-      <main className="flex-1 p-4 sm:p-8 overflow-x-auto pt-[4.5rem] md:pt-8">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3">
-          <div>
-            <h1 className="text-2xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>Push Notifications</h1>
-            <p className="text-sm mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Expo Push · {activeDeviceCount} device{activeDeviceCount !== 1 ? 's' : ''} registered · {notifications.length} in history
-            </p>
+      <main className="flex-1 overflow-x-auto pt-14 md:pt-0">
+        {/* Banner */}
+        <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
+                <Bell size={20} className="text-[hsl(142_60%_32%)]" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">Push Notifications</h1>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Expo Push · {activeDeviceCount} device{activeDeviceCount !== 1 ? 's' : ''} registered · {notifications.length} in history
+                </p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2 self-start">
+              <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} /> Refresh
+            </Button>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2 self-start">
-            <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} /> Refresh
-          </Button>
         </div>
 
-        {/* Stats */}
-        <div className="mb-6">
+        <div className="px-4 sm:px-8 py-5 space-y-5">
           <StatsRow notifications={notifications} deviceCount={activeDeviceCount} />
-        </div>
 
-        {/* Main layout */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
+          {/* Main layout */}
+          <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
           {/* Left */}
           <div className="space-y-6 min-w-0">
             <ComposePanel
@@ -1351,6 +1356,7 @@ const Notifications = () => {
                 ))}
               </div>
             </div>
+          </div>
           </div>
         </div>
       </main>
