@@ -39,9 +39,10 @@ serve(async (req) => {
 
     console.log(`send-notification: id=${notificationId} audience=${audience}`);
 
+    // Use external Supabase project for device_tokens and push_notifications
     const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      'https://lhaqqqatdztuijgdfdcf.supabase.co',
+      Deno.env.get('EXT_SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
     // Fetch active device tokens
