@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import Sidebar from '@/components/layout/Sidebar';
 import { fetchPrayerTimes, fetchAdhkar, fetchAnnouncements, fetchAdhkarGroups } from '@/lib/api';
 import { CalendarDays, BookOpen, Bell, Clock, ChevronRight, Star, BellRing } from 'lucide-react';
-import masjidPhoto from '@/assets/masjid-photo.jpg';
+import masjidPhoto from '@/assets/masjid-photo.png';
 import masjidLogo from '@/assets/masjid-logo.png';
 
 const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
