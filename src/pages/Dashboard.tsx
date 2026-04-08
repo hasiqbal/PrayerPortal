@@ -169,7 +169,7 @@ const NextPrayerCountdown = ({ prayers }: { prayers: PrayerEntry[] }) => {
   );
 };
 
-// ─── Today's Full Prayer Times Table ─────────────────────────────────────────
+// ─── Today's Prayer Cards ─────────────────────────────────────────────────────
 
 interface PrayerRow {
   label: string;
@@ -177,9 +177,10 @@ interface PrayerRow {
   jamat?: string | null;
   color: string;
   showJamat: boolean;
+  emoji: string;
 }
 
-const TodayPrayerTable = ({
+const TodayPrayerCards = ({
   rows,
   isFriday,
   jumuah1,
@@ -201,111 +202,114 @@ const TodayPrayerTable = ({
     return currentMins >= startMins && currentMins < nextMins;
   };
 
-  return (
-    <div className="bg-white rounded-2xl border border-[hsl(140_20%_88%)] overflow-hidden shadow-sm">
-      {/* Table header */}
-      <div className="grid grid-cols-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-4 py-2 border-b border-[hsl(140_20%_90%)] bg-[hsl(142_30%_97%)]">
-        <span>Prayer</span>
-        <span className="text-center">Start Time</span>
-        <span className="text-right">Jamāʿat</span>
-      </div>
+  // Main 5 prayer rows only (not sunrise/ishraq/zawaal — those are in solar card)
+  const mainRows = rows.filter(r => ['Fajr','Zuhr','Asr','Maghrib','Isha'].includes(r.label));
 
-      <div className="divide-y divide-[hsl(140_20%_93%)]">
-        {rows.map((row, idx) => {
-          const isCurrent = isCurrentPrayer(row, rows[idx + 1]);
+  return (
+    <div className="space-y-3">
+      {/* 5 prayer cards grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+        {mainRows.map((row, idx) => {
+          const isCurrent = isCurrentPrayer(row, mainRows[idx + 1]);
           return (
             <div
               key={row.label}
-              className={`grid grid-cols-3 items-center px-4 py-3 transition-colors ${
+              className={`relative rounded-2xl border overflow-hidden transition-all ${
                 isCurrent
-                  ? 'bg-[hsl(142_50%_96%)] border-l-4 border-[hsl(142_60%_40%)]'
-                  : 'hover:bg-[hsl(140_20%_97%)]'
+                  ? 'shadow-md ring-2'
+                  : 'bg-white border-[hsl(140_20%_88%)] hover:shadow-sm'
               }`}
+              style={isCurrent ? {
+                background: row.color + '0f',
+                borderColor: row.color + '55',
+                ringColor: row.color + '30',
+              } : {}}
             >
-              {/* Prayer name */}
-              <div className="flex items-center gap-2.5">
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${isCurrent ? 'animate-pulse' : ''}`}
+              {isCurrent && (
+                <div
+                  className="absolute top-0 left-0 right-0 h-0.5"
                   style={{ background: row.color }}
                 />
-                <span
-                  className={`text-sm font-bold ${isCurrent ? 'text-[hsl(142_60%_28%)]' : 'text-[hsl(150_30%_18%)]'}`}
+              )}
+              <div className="px-3 py-3.5 flex flex-col items-center text-center gap-1.5">
+                {/* Emoji icon */}
+                <span className="text-xl">{row.emoji}</span>
+
+                {/* Label */}
+                <p
+                  className="text-[11px] font-bold uppercase tracking-wider"
+                  style={{ color: isCurrent ? row.color : 'hsl(150 30% 25%)' }}
                 >
                   {row.label}
-                </span>
-                {isCurrent && (
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[hsl(142_60%_35%)] text-white">
-                    NOW
-                  </span>
-                )}
-              </div>
+                  {isCurrent && (
+                    <span
+                      className="ml-1 inline-flex items-center text-[8px] font-bold px-1 py-0.5 rounded-full text-white"
+                      style={{ background: row.color }}
+                    >
+                      NOW
+                    </span>
+                  )}
+                </p>
 
-              {/* Start time */}
-              <div className="text-center">
-                <span
-                  className={`text-base font-extrabold tabular-nums ${
-                    row.start ? (isCurrent ? 'text-[hsl(142_60%_28%)]' : 'text-[hsl(150_30%_12%)]') : 'text-muted-foreground/40'
-                  }`}
+                {/* Start time */}
+                <p
+                  className="text-2xl font-extrabold tabular-nums leading-none"
+                  style={{ color: row.start ? (isCurrent ? row.color : 'hsl(150 30% 12%)') : 'hsl(var(--muted-foreground) / 0.3)' }}
                 >
                   {row.start ?? '—'}
-                </span>
-              </div>
+                </p>
 
-              {/* Jamaat */}
-              <div className="text-right">
-                {row.showJamat ? (
-                  <span
-                    className={`text-sm font-semibold tabular-nums ${
-                      row.jamat ? 'text-[hsl(150_30%_30%)]' : 'text-muted-foreground/30'
-                    }`}
-                  >
-                    {row.jamat ?? '—'}
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-muted-foreground/40 italic">—</span>
+                {/* Jamaat time */}
+                {row.showJamat && (
+                  <div className="flex flex-col items-center">
+                    <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Jamāʿat</p>
+                    <p
+                      className="text-sm font-bold tabular-nums"
+                      style={{ color: row.jamat ? row.color + 'cc' : 'hsl(var(--muted-foreground) / 0.3)' }}
+                    >
+                      {row.jamat ?? '—'}
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
           );
         })}
+      </div>
 
-        {/* Jumu'ah row — only on Fridays */}
-        {isFriday && (
-          <div className="grid grid-cols-3 items-center px-4 py-3 bg-[hsl(50_100%_97%)] border-l-4 border-amber-400">
-            <div className="flex items-center gap-2.5">
-              <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-              <span className="text-sm font-bold text-amber-700">Jumu'ah</span>
-            </div>
-            <div className="text-center col-span-2 flex items-center justify-center gap-3">
+      {/* Jumu'ah card — only on Fridays */}
+      {isFriday && (
+        <div className="rounded-2xl border border-amber-300 bg-[hsl(50_100%_97%)] px-4 py-3.5 flex items-center gap-4">
+          <span className="text-2xl shrink-0">🕌</span>
+          <div className="flex-1">
+            <p className="text-xs font-bold uppercase tracking-wider text-amber-700">Jumu'ah — Friday Prayer</p>
+            <div className="flex items-center gap-5 mt-1">
               {jumuah1 && (
-                <span className="flex flex-col items-center">
-                  <span className="text-[10px] text-amber-600 font-semibold">1st</span>
-                  <span className="text-base font-extrabold tabular-nums text-amber-700">{jumuah1}</span>
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-bold text-amber-500 uppercase">1st Khutbah</span>
+                  <span className="text-xl font-extrabold tabular-nums text-amber-700">{jumuah1}</span>
+                </div>
               )}
               {jumuah2 && (
-                <>
-                  <span className="text-muted-foreground/30">·</span>
-                  <span className="flex flex-col items-center">
-                    <span className="text-[10px] text-amber-600 font-semibold">2nd</span>
-                    <span className="text-base font-extrabold tabular-nums text-amber-700">{jumuah2}</span>
-                  </span>
-                </>
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-bold text-amber-500 uppercase">2nd Khutbah</span>
+                  <span className="text-xl font-extrabold tabular-nums text-amber-700">{jumuah2}</span>
+                </div>
               )}
               {!jumuah1 && !jumuah2 && (
-                <span className="text-sm text-muted-foreground/40">Not set</span>
+                <span className="text-sm text-amber-600/50">Times not set</span>
               )}
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
 
 // ─── Solar Times Card (Sunrise / Ishraq / Zawaal) ─────────────────────────────
-
-const SolarTimesCard = ({
+// (Also exported for use in PrayerTimes page)
+export const SolarTimesCard = ({
   sunrise, ishraq, zawaal,
 }: { sunrise: string | null; ishraq: string | null; zawaal: string | null }) => {
   const items = [
@@ -466,16 +470,13 @@ const Dashboard = () => {
   const activeAnnouncements = announcements.filter((a) => a.is_active);
   const activeAdhkar = adhkar.filter((a) => a.is_active);
 
-  // Full prayer rows for the table
+  // Full prayer rows for the cards
   const prayerRows: PrayerRow[] = [
-    { label: 'Fajr',    start: todayRow?.fajr    ?? null, jamat: todayRow?.fajr_jamat,    color: '#2563eb', showJamat: true },
-    { label: 'Sunrise', start: todayRow?.sunrise  ?? null, jamat: null,                    color: '#0369a1', showJamat: false },
-    { label: 'Ishraq',  start: todayRow?.ishraq   ?? null, jamat: null,                    color: '#0891b2', showJamat: false },
-    { label: 'Zawaal',  start: todayRow?.zawaal   ?? null, jamat: null,                    color: '#0f766e', showJamat: false },
-    { label: 'Zuhr',    start: todayRow?.zuhr     ?? null, jamat: todayRow?.zuhr_jamat,    color: '#854d0e', showJamat: true },
-    { label: 'Asr',     start: todayRow?.asr      ?? null, jamat: todayRow?.asr_jamat,     color: '#15803d', showJamat: true },
-    { label: 'Maghrib', start: todayRow?.maghrib   ?? null, jamat: todayRow?.maghrib_jamat, color: '#b91c1c', showJamat: true },
-    { label: 'Isha',    start: todayRow?.isha      ?? null, jamat: todayRow?.isha_jamat,    color: '#7c3aed', showJamat: true },
+    { label: 'Fajr',    start: todayRow?.fajr    ?? null, jamat: todayRow?.fajr_jamat,    color: '#2563eb', showJamat: true,  emoji: '🌙' },
+    { label: 'Zuhr',    start: todayRow?.zuhr     ?? null, jamat: todayRow?.zuhr_jamat,    color: '#b45309', showJamat: true,  emoji: '☀️' },
+    { label: 'Asr',     start: todayRow?.asr      ?? null, jamat: todayRow?.asr_jamat,     color: '#15803d', showJamat: true,  emoji: '🌤️' },
+    { label: 'Maghrib', start: todayRow?.maghrib   ?? null, jamat: todayRow?.maghrib_jamat, color: '#b91c1c', showJamat: true,  emoji: '🌅' },
+    { label: 'Isha',    start: todayRow?.isha      ?? null, jamat: todayRow?.isha_jamat,    color: '#7c3aed', showJamat: true,  emoji: '🌙' },
   ];
 
   // Prayers for next-prayer countdown (main 5 + Ishraq)
@@ -574,19 +575,12 @@ const Dashboard = () => {
                 {/* Next prayer countdown */}
                 <NextPrayerCountdown prayers={countdownPrayers} />
 
-                {/* Full times table */}
-                <TodayPrayerTable
+                {/* Individual prayer cards */}
+                <TodayPrayerCards
                   rows={prayerRows}
                   isFriday={isFriday}
                   jumuah1={todayRow.jumu_ah_1 ?? null}
                   jumuah2={todayRow.jumu_ah_2 ?? null}
-                />
-
-                {/* Sunrise / Ishraq / Zawaal special times card */}
-                <SolarTimesCard
-                  sunrise={todayRow.sunrise ?? null}
-                  ishraq={todayRow.ishraq ?? null}
-                  zawaal={todayRow.zawaal ?? null}
                 />
               </div>
             ) : (

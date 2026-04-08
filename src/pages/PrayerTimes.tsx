@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { isBST, lastSundayOf } from '@/lib/dateUtils';
+import { SolarTimesCard } from '@/pages/Dashboard';
 
 const HIJRI_OFFSET_KEY = 'hijri_offset';
 function loadOffset(): number {
@@ -322,7 +323,28 @@ const PrayerTimes = () => {
             </div>
           )}
           {!isLoading && !isError && data && (
-            <PrayerTimesTable data={data} year={selectedYear} hijriOffset={hijriOffset} onEdit={setEditingRow} highlightDay={highlightDay} />
+            <>
+              <PrayerTimesTable data={data} year={selectedYear} hijriOffset={hijriOffset} onEdit={setEditingRow} highlightDay={highlightDay} />
+
+              {/* Solar Times card — shows today's values when viewing the current month */}
+              {selectedYear === CURRENT_YEAR && selectedMonth === CURRENT_MONTH && (() => {
+                const today = new Date().getDate();
+                const todayRow = data.find(r => r.day === today);
+                if (!todayRow) return null;
+                return (
+                  <div className="mt-4 max-w-2xl">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 px-1">
+                      Today’s Solar Times
+                    </p>
+                    <SolarTimesCard
+                      sunrise={todayRow.sunrise ?? null}
+                      ishraq={todayRow.ishraq ?? null}
+                      zawaal={todayRow.zawaal ?? null}
+                    />
+                  </div>
+                );
+              })()}
+            </>
           )}
         </div>
       </main>
