@@ -95,7 +95,7 @@ const SidebarFooter = ({ onNavClick }: { onNavClick?: () => void }) => {
         <span className="text-[11px] font-semibold text-green-600">Live</span>
       </div>
       {user && (
-        <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate mb-2">{user.email}</p>
+        <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate mb-2">{user.username}</p>
       )}
       <button
         onClick={handleSignOut}

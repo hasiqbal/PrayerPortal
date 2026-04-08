@@ -1,52 +1,54 @@
 import { useState, useEffect, createContext, useContext } from 'react';
-import { User } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+
+interface LocalUser {
+  username: string;
+}
 
 interface AuthState {
-  user: User | null;
+  user: LocalUser | null;
   loading: boolean;
+  localLogin: (username: string) => void;
   signOut: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthState>({
   user: null,
-  loading: true,
+  loading: false,
+  localLogin: () => {},
   signOut: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
+const SESSION_KEY = 'jmn_admin_session';
+
 export function useAuthState(): AuthState {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<LocalUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let mounted = true;
-
-    // Check existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (mounted) {
-        setUser(session?.user ?? null);
-        setLoading(false);
+    // Restore session from localStorage
+    try {
+      const stored = localStorage.getItem(SESSION_KEY);
+      if (stored) {
+        setUser(JSON.parse(stored));
       }
-    });
-
-    // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
+    } catch {
+      // ignore
+    }
+    setLoading(false);
   }, []);
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
+  const localLogin = (username: string) => {
+    const u: LocalUser = { username };
+    setUser(u);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(u));
   };
 
-  return { user, loading, signOut };
+  const signOut = async () => {
+    setUser(null);
+    localStorage.removeItem(SESSION_KEY);
+  };
+
+  return { user, loading, localLogin, signOut };
 }
