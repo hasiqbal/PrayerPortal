@@ -234,7 +234,7 @@ const SortableGroupSection = ({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
-      className={`rounded-xl border border-border overflow-hidden shadow-sm ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
+      className={`rounded-xl border border-border shadow-sm ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
     >
       {/* Close rename dropdown on outside click */}
       {renameDropOpen && (
@@ -500,7 +500,7 @@ const SortableGroupSection = ({
 
       {/* ── Entries list ── */}
       {!collapsed && !isDragOverlay && !isDragging && (
-        <div className="bg-background">
+        <div className="bg-background overflow-hidden rounded-b-xl">
           <DndContext
             sensors={sensors} collisionDetection={closestCenter}
             onDragStart={(e) => setEntryDragActiveId(e.active.id as string)}
@@ -531,7 +531,7 @@ const SortableGroupSection = ({
         </div>
       )}
       {isDragOverlay && (
-        <div className="bg-background px-5 py-2 text-xs text-muted-foreground">
+        <div className="bg-background rounded-b-xl px-5 py-2 text-xs text-muted-foreground">
           {items.length} {items.length === 1 ? 'dhikr' : 'adhkar'}
         </div>
       )}
