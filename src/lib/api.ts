@@ -279,62 +279,77 @@ export async function bulkUpdatePrayerTimesFromCsv(
 
   // ── Step 1: fetch existing rows for this month to build a day→id map ──────
   const existing = await fetchPrayerTimes(month);
-  const dayToId = new Map(existing.map((r) => [r.day, r.id]));
+  const dayToId  = new Map(existing.map((r) => [r.day, r.id]));
+  const existingByDay = new Map(existing.map((r) => [r.day, r]));
 
-  const toUpdate: { id: string; fields: PrayerTimeUpdate }[] = [];
+  const toUpsert: (PrayerTimeUpdate & { id?: string; month: number; day: number })[] = [];
   const toInsert: (PrayerTimeUpdate & { month: number; day: number })[] = [];
 
   for (const { day, fields } of rows) {
     const id = dayToId.get(day);
     if (id) {
-      toUpdate.push({ id, fields });
+      toUpsert.push({ id, month, day, ...fields });
     } else {
       toInsert.push({ month, day, ...fields });
     }
   }
 
-  console.log(`Month ${month}: updating ${toUpdate.length} existing rows, inserting ${toInsert.length} new rows`);
+  console.log(`Month ${month}: upserting ${toUpsert.length} rows, inserting ${toInsert.length} new rows`);
 
-  // ── Step 2: batch update existing rows ────────────────────────────────────
-  // PATCH requests succeed (200) but return [] due to RLS on external Supabase.
-  // We fire all updates and track count by how many we sent, not what's returned.
-  let updatedCount = 0;
-  if (toUpdate.length > 0) {
-    const updatePromises = toUpdate.map(async ({ id, fields }) => {
-      const { error } = await supabase
-        .from('prayer_times')
-        .update(fields)
-        .eq('id', id);
-      if (error) {
-        console.error(`Update failed for row id ${id}:`, error.message);
-        return false;
-      }
-      return true;
-    });
-    const results = await Promise.all(updatePromises);
-    updatedCount = results.filter(Boolean).length;
+  // Build a result map seeded with existing rows so non-imported days are preserved.
+  const resultMap = new Map<number, PrayerTime>(existingByDay);
+
+  // ── Step 2: update existing rows one-by-one using .update().select() ──────
+  // We use individual updates (not bulk) so we get the updated row back via .select()
+  if (toUpsert.length > 0) {
+    const updateResults = await Promise.all(
+      toUpsert.map(async ({ id, month: _m, day, ...fields }) => {
+        const { data, error } = await supabase
+          .from('prayer_times')
+          .update(fields)
+          .eq('id', id!)
+          .select()
+          .single();
+        if (error) {
+          console.error(`Update failed for month=${month} day=${day} id=${id}:`, error.message);
+          return null;
+        }
+        return data as PrayerTime;
+      })
+    );
+    updateResults.forEach((row) => { if (row) resultMap.set(row.day, row); });
   }
 
-  // ── Step 3: insert new rows ───────────────────────────────────────────────
-  let insertedCount = 0;
+  // ── Step 3: insert new rows with .select() to get back the created rows ───
   if (toInsert.length > 0) {
-    const { error: insertError } = await supabase
+    const { data: inserted, error: insertError } = await supabase
       .from('prayer_times')
-      .insert(toInsert);
+      .insert(toInsert)
+      .select();
     if (insertError) {
       console.error('Insert new rows error:', insertError.message);
       throw new Error(`Failed to insert new prayer time rows: ${insertError.message}`);
     }
-    insertedCount = toInsert.length;
+    (inserted as PrayerTime[]).forEach((row) => resultMap.set(row.day, row));
   }
 
-  // ── Step 4: re-fetch the FULL month to reflect all saved data ───────────
-  const saved = await fetchPrayerTimes(month);
-  console.log(`Month ${month}: ${updatedCount} updated, ${insertedCount} inserted, ${saved.length} total rows in DB`);
+  // ── Step 4: if any update returned null (RLS blocking select), fall back to a full re-fetch
+  const updatedDays = toUpsert.map((r) => r.day);
+  const gotAllUpdated = updatedDays.every((d) => {
+    const row = resultMap.get(d);
+    // check the row actually changed from what we sent (i.e. the update was reflected)
+    return row !== undefined;
+  });
 
-  // Return ALL rows for this month so the calendar can fully render
-  // (not just the processed days — this allows existing rows to remain visible too)
-  return saved;
+  if (!gotAllUpdated || toUpsert.some((_, i) => !resultMap.has(toUpsert[i].day))) {
+    console.warn(`Month ${month}: some updates didn't return data — falling back to full re-fetch`);
+    const refetched = await fetchPrayerTimes(month);
+    refetched.forEach((row) => resultMap.set(row.day, row));
+  }
+
+  const sorted = Array.from(resultMap.values()).sort((a, b) => a.day - b.day);
+  console.log(`Month ${month}: done. ${sorted.length} total rows returned to cache.`);
+  return sorted;
 }
 
 export async function bulkUpdatePrayerTimesFromYearCsv(

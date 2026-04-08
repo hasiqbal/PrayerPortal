@@ -195,25 +195,21 @@ const PrayerTimes = () => {
   };
 
   const handleCsvImported = useCallback((updatedByMonth: Map<number, PrayerTime[]>) => {
-    // Directly replace the cache for every imported month with the
-    // re-fetched rows returned by bulkUpdatePrayerTimesFromCsv.
-    // This bypasses any stale merge and ensures the table immediately
-    // reflects what's actually in the database.
+    // Directly replace cache for every imported month with the rows returned
+    // by bulkUpdatePrayerTimesFromCsv (which already includes the updated data
+    // from .select() on each update call). We do NOT fire a separate refetch
+    // here — the returned rows ARE the authoritative post-save state.
     updatedByMonth.forEach((rows, m) => {
       if (rows.length > 0) {
         const sorted = [...rows].sort((a, b) => a.day - b.day);
-        // Force-write the fresh rows; do NOT merge with old cache
+        // setQueryData triggers an immediate re-render of any useQuery subscriber
         queryClient.setQueryData<PrayerTime[]>(['prayer_times', m], sorted);
       }
-      // Mark stale so any future navigation re-fetches
-      queryClient.invalidateQueries({ queryKey: ['prayer_times', m], refetchType: 'none' });
     });
-    // Force immediate refetch for the visible month so the table re-renders
-    if (updatedByMonth.has(selectedMonth)) {
-      queryClient.refetchQueries({ queryKey: ['prayer_times', selectedMonth] });
-    }
+    // Do NOT call invalidateQueries or refetchQueries — that would overwrite
+    // our fresh cache with another round-trip that might still be in-flight.
     setCsvModal(false);
-  }, [queryClient, selectedMonth]);
+  }, [queryClient]);
 
   const monthHasBSTChange = (m: number) => m === 3 || m === 10;
   const _bstStartDay = lastSundayOf(selectedYear, 3);

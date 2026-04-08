@@ -4,26 +4,15 @@ import React from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { PrayerTime, PrayerTimeUpdate } from '@/types';
-import { bulkUpdatePrayerTimesFromCsv, bulkUpdatePrayerTimesFromYearCsv } from '@/lib/api';
+import { bulkUpdatePrayerTimesFromCsv, bulkUpdatePrayerTimesFromYearCsv, fetchPrayerTimes } from '@/lib/api';
 import { toast } from 'sonner';
-import { Upload, AlertCircle, CheckCircle2, Loader2, Download, AlertTriangle, ArrowLeft, ClipboardPaste, FileUp } from 'lucide-react';
+import { Upload, AlertCircle, CheckCircle2, Loader2, Download, AlertTriangle, ArrowLeft, ClipboardPaste, FileUp, ArrowRight } from 'lucide-react';
 
 // ─── CSV columns — matching user's CSV column order ───────────────────────────
-// Jumu'ah times are excluded — they are set via the bulk Jumu'ah tool on the Prayer Times page
 const CSV_COLUMNS: (keyof PrayerTimeUpdate)[] = [
-  'fajr',
-  'sunrise',
-  'ishraq',
-  'zawaal',
-  'zuhr',
-  'asr',
-  'maghrib',
-  'isha',
-  'fajr_jamat',
-  'zuhr_jamat',
-  'asr_jamat',
-  'maghrib_jamat',
-  'isha_jamat',
+  'fajr', 'sunrise', 'ishraq', 'zawaal', 'zuhr', 'asr',
+  'maghrib', 'isha', 'fajr_jamat', 'zuhr_jamat', 'asr_jamat',
+  'maghrib_jamat', 'isha_jamat',
 ];
 
 const MONTHS_FULL = [
@@ -36,8 +25,6 @@ const MONTH_ABBR_MAP: Record<string, number> = {
   jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
 };
 
-// Normalise a raw header string → canonical key or special token.
-// Returns null if the column should be silently skipped.
 function normaliseHeader(raw: string): keyof PrayerTimeUpdate | 'date' | 'month' | null {
   const s = raw.trim().toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_');
   if (s === 'date' || s === 'day') return 'date';
@@ -61,7 +48,6 @@ function normaliseHeader(raw: string): keyof PrayerTimeUpdate | 'date' | 'month'
     laghrib_jamat: 'maghrib_jamat',
     esha: 'isha',
     isha_jamaat: 'isha_jamat', isha_jama: 'isha_jamat', isha_jam: 'isha_jamat',
-    // jumu'ah aliases intentionally omitted — set via the portal tool
   };
   return ALIASES[s] ?? null;
 }
@@ -98,26 +84,18 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
     };
   }
 
-  // ── Auto-detect delimiter (tab vs comma) using all sample lines ───────────
   const sample = lines.slice(0, 5).join('\n');
   const tabCount = (sample.match(/\t/g) ?? []).length;
   const commaCount = (sample.match(/,/g) ?? []).length;
   const delimiter = tabCount > commaCount ? '\t' : ',';
+  const splitRow = (line: string) => line.split(delimiter).map((c) => c.trim().replace(/^"(.*)"$/, '$1'));
 
-  const splitRow = (line: string) =>
-    line.split(delimiter).map((c) => c.trim().replace(/^"(.*)"$/, '$1'));
-
-  // ── Find the real header row ──────────────────────────────────────────────
-  // Excel sheets often have section-label rows above the actual headers
-  // (e.g. "STARTING TIMES" / "JAMAAT TIMES" spanning merged cells).
-  // Scan the first 5 lines and use the first one that contains a recognised column.
   let headerRowIdx = 0;
   for (let i = 0; i < Math.min(lines.length, 5); i++) {
     const cols = splitRow(lines[i]).map(normaliseHeader);
-    const hasKnown = cols.some(
-      (c) => c === 'date' || c === 'month' || CSV_COLUMNS.includes(c as keyof PrayerTimeUpdate)
-    );
-    if (hasKnown) { headerRowIdx = i; break; }
+    if (cols.some((c) => c === 'date' || c === 'month' || CSV_COLUMNS.includes(c as keyof PrayerTimeUpdate))) {
+      headerRowIdx = i; break;
+    }
   }
 
   const rawHeaders = splitRow(lines[headerRowIdx]);
@@ -130,10 +108,7 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
   if (!hasDateCol) {
     return {
       rows: [], unknownColumns: [], isYearScope,
-      parseErrors: [
-        'CSV must include a "DATE" or "day" column. Values like "01-Jan" or plain day numbers (1, 2 …) are both accepted. ' +
-        'If you copied from Excel with section-label rows (e.g. "STARTING TIMES"), make sure the row with DATE/FAJR/etc. is included.',
-      ],
+      parseErrors: ['CSV must include a "DATE" or "day" column. Values like "01-Jan" or plain day numbers (1, 2 …) are both accepted.'],
       validationIssues: [],
     };
   }
@@ -144,10 +119,7 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
   );
   const validationIssues: ValidationIssue[] = [];
   if (recognisedTimeCols.length === 0) {
-    validationIssues.push({
-      type: 'error',
-      message: 'No recognised prayer time columns found. Please check your column names.',
-    });
+    validationIssues.push({ type: 'error', message: 'No recognised prayer time columns found.' });
     return { rows: [], unknownColumns, parseErrors: [], validationIssues, isYearScope };
   }
 
@@ -158,11 +130,8 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
   const keysSeen = new Set<string>();
   let detectedYearScope = hasMonthCol;
 
-  // Start data rows right after the header row
   for (let i = headerRowIdx + 1; i < lines.length; i++) {
     const cells = splitRow(lines[i]);
-
-    // Skip section-header rows and fully empty rows
     const hasTime = cells.some((c) => /^\d{1,2}:\d{2}$/.test(c));
     const allText = cells.every((c) => c === '' || (/^[a-z\s]+$/i.test(c) && !/^\d/.test(c)));
     if (!hasTime && allText) continue;
@@ -173,9 +142,7 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
     let day = 0;
 
     const rawDate = cells[dateIdx] ?? '';
-    // DD-Mon format: "01-Jan", "1-Jan", "15-Feb"
-    const ddMon = rawDate.match(/^(\d{1,2})[-/](\w+)$/);
-    // Plain day number: "1", "15"
+    const ddMon   = rawDate.match(/^(\d{1,2})[-/](\w+)$/);
     const plainDay = rawDate.match(/^\d{1,2}$/);
 
     if (ddMon) {
@@ -195,34 +162,28 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
       const rawMonth = cells[monthIdx] ?? '';
       const parsedMonth = parseInt(rawMonth, 10);
       if (isNaN(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
-        rowErrors.push(`Row ${i + 1}: invalid month "${rawMonth}" (must be 1–12)`);
-      } else {
-        month = parsedMonth;
-      }
+        rowErrors.push(`Row ${i + 1}: invalid month "${rawMonth}"`);
+      } else { month = parsedMonth; }
       day = parseInt(rawDate, 10);
-      if (isNaN(day)) {
-        rowErrors.push(`Row ${i + 1}: unrecognised date/day value "${rawDate}"`);
-      }
+      if (isNaN(day)) rowErrors.push(`Row ${i + 1}: unrecognised date/day value "${rawDate}"`);
     } else {
       const parts = rawDate.split(/[-/]/).map(Number);
       if (parts.length === 2 && parts[0] >= 1 && parts[1] >= 1 && parts[1] <= 12) {
         day = parts[0]; month = parts[1];
       } else {
-        rowErrors.push(`Row ${i + 1}: unrecognised date "${rawDate}" — use DD-Mon (e.g. 01-Jan) or a plain day number`);
+        rowErrors.push(`Row ${i + 1}: unrecognised date "${rawDate}" — use DD-Mon (e.g. 01-Jan) or plain day`);
       }
     }
 
     if (day < 1 || day > 31 || isNaN(day)) {
-      rows.push({ month, day: day || 0, fields: {}, errors: rowErrors.length ? rowErrors : [`Row ${i + 1}: invalid day value "${rawDate}"`] });
+      rows.push({ month, day: day || 0, fields: {}, errors: rowErrors.length ? rowErrors : [`Row ${i + 1}: invalid day "${rawDate}"`] });
       continue;
     }
 
     const key = `${month}-${day}`;
     if (keysSeen.has(key)) {
       rowErrors.push(`Row ${i + 1}: duplicate entry for ${MONTHS_FULL[month - 1]} day ${day}`);
-    } else {
-      keysSeen.add(key);
-    }
+    } else { keysSeen.add(key); }
 
     const fields: PrayerTimeUpdate = {};
     normHeaders.forEach((norm, colIdx) => {
@@ -240,7 +201,6 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
           (fields as Record<string, string>)[col] = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
         }
       }
-      // Non-time, non-empty values (e.g. colour formatting text) — skip silently
     });
 
     rows.push({ month, day, fields, errors: rowErrors });
@@ -259,29 +219,47 @@ function downloadTemplate(scope: 'year' | 'month', year: number, month: number) 
     for (let m = 1; m <= 12; m++) {
       const daysInMonth = new Date(year, m, 0).getDate();
       for (let d = 1; d <= daysInMonth; d++) {
-        const dateStr = `${String(d).padStart(2, '0')}-${monthAbbrs[m - 1]}`;
-        dataRows.push([dateStr, ...CSV_COLUMNS.map(() => '')].join(','));
+        dataRows.push([`${String(d).padStart(2,'0')}-${monthAbbrs[m-1]}`, ...CSV_COLUMNS.map(() => '')].join(','));
       }
     }
   } else {
     const daysInMonth = new Date(year, month, 0).getDate();
     for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${String(d).padStart(2, '0')}-${monthAbbrs[month - 1]}`;
-      dataRows.push([dateStr, ...CSV_COLUMNS.map(() => '')].join(','));
+      dataRows.push([`${String(d).padStart(2,'0')}-${monthAbbrs[month-1]}`, ...CSV_COLUMNS.map(() => '')].join(','));
     }
   }
 
   const csv = [header, ...dataRows].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
   a.href = url;
   a.download = scope === 'year'
     ? `prayer-times-${year}.csv`
-    : `prayer-times-${year}-${String(month).padStart(2, '0')}-${MONTHS_FULL[month - 1].toLowerCase()}.csv`;
+    : `prayer-times-${year}-${String(month).padStart(2,'0')}-${MONTHS_FULL[month-1].toLowerCase()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// ─── Diff cell ────────────────────────────────────────────────────────────────
+// Shows old → new with amber highlight when a value changes
+const DiffCell = ({ oldVal, newVal }: { oldVal: string | null | undefined; newVal: string | null | undefined }) => {
+  const old_ = oldVal ?? null;
+  const new_ = newVal ?? null;
+  const changed = old_ !== new_;
+
+  if (!changed) {
+    return <span className="font-mono text-muted-foreground">{new_ ?? <span className="opacity-30">—</span>}</span>;
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 rounded px-1 py-0.5 bg-amber-50 border border-amber-200">
+      <span className="font-mono text-[10px] text-red-400 line-through">{old_ ?? '—'}</span>
+      <ArrowRight size={9} className="text-amber-400 shrink-0" />
+      <span className="font-mono text-[10px] font-bold text-emerald-700">{new_ ?? '—'}</span>
+    </span>
+  );
+};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 interface CsvImportModalProps {
@@ -291,21 +269,22 @@ interface CsvImportModalProps {
   monthName: string;
   year: number;
   onImported: (updatedByMonth: Map<number, PrayerTime[]>) => void;
-  /** Pre-loaded CSV text (e.g. passed from the Excel Converter page via sessionStorage) */
   preloadedCsv?: string;
 }
 
-type Stage = 'idle' | 'validating' | 'parsed' | 'saving' | 'done';
+type Stage = 'idle' | 'validating' | 'loadingExisting' | 'parsed' | 'saving' | 'done';
 type InputMode = 'upload' | 'paste';
 
 const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, preloadedCsv }: CsvImportModalProps) => {
   const scope: 'year' | 'month' = 'year';
-  const [stage, setStage] = useState<Stage>('idle');
-  const [inputMode, setInputMode] = useState<InputMode>('upload');
-  const [pasteText, setPasteText] = useState('');
-  const [parseResult, setParseResult] = useState<ParseResult | null>(null);
-  const [fileName, setFileName] = useState('');
-  const [progress, setProgress] = useState('');
+  const [stage,        setStage]        = useState<Stage>('idle');
+  const [inputMode,    setInputMode]    = useState<InputMode>('upload');
+  const [pasteText,    setPasteText]    = useState('');
+  const [parseResult,  setParseResult]  = useState<ParseResult | null>(null);
+  const [fileName,     setFileName]     = useState('');
+  const [progress,     setProgress]     = useState('');
+  // Map<month, Map<day, PrayerTime>> — current DB values for diff view
+  const [existingData, setExistingData] = useState<Map<number, Map<number, PrayerTime>>>(new Map());
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Auto-parse pre-loaded CSV when the modal opens with one
@@ -320,9 +299,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
       setFileName('excel-converter-output.csv');
       setStage('validating');
     }
-    if (!open) {
-      preloadHandled.current = false;
-    }
+    if (!open) { preloadHandled.current = false; }
   }, [open, preloadedCsv, month]);
 
   const reset = () => {
@@ -331,6 +308,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
     setFileName('');
     setProgress('');
     setPasteText('');
+    setExistingData(new Map());
     preloadHandled.current = false;
     if (fileRef.current) fileRef.current.value = '';
   };
@@ -345,10 +323,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
   };
 
   const handleFile = (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      toast.error('Please upload a .csv file.');
-      return;
-    }
+    if (!file.name.toLowerCase().endsWith('.csv')) { toast.error('Please upload a .csv file.'); return; }
     const reader = new FileReader();
     reader.onload = (e) => handleParseCsv(e.target?.result as string, file.name);
     reader.readAsText(file);
@@ -366,15 +341,13 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
     if (file) handleFile(file);
   };
 
-  const proceedToPreview = () => setStage('parsed');
-
-  const validRows = parseResult?.rows.filter((r) => r.errors.length === 0) ?? [];
-  const errorRows = parseResult?.rows.filter((r) => r.errors.length > 0) ?? [];
+  const validRows   = parseResult?.rows.filter((r) => r.errors.length === 0) ?? [];
+  const errorRows   = parseResult?.rows.filter((r) => r.errors.length > 0) ?? [];
   const allRowErrors = errorRows.flatMap((r) => r.errors);
   const blockingIssues = (parseResult?.validationIssues ?? []).filter((i) => i.type === 'error');
-  const warningIssues = (parseResult?.validationIssues ?? []).filter((i) => i.type === 'warning');
-  const parseErrors = parseResult?.parseErrors ?? [];
-  const canProceed = blockingIssues.length === 0 && parseErrors.length === 0 && validRows.length > 0;
+  const warningIssues  = (parseResult?.validationIssues ?? []).filter((i) => i.type === 'warning');
+  const parseErrors    = parseResult?.parseErrors ?? [];
+  const canProceed     = blockingIssues.length === 0 && parseErrors.length === 0 && validRows.length > 0;
 
   const rowsByMonth = new Map<number, typeof validRows>();
   validRows.forEach((r) => {
@@ -382,6 +355,25 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
     rowsByMonth.get(r.month)!.push(r);
   });
   const monthsAffected = Array.from(rowsByMonth.keys()).sort((a, b) => a - b);
+
+  // ─── Proceed to preview: fetch current DB data for diff display ──────────
+  const proceedToPreview = async () => {
+    setStage('loadingExisting');
+    try {
+      const fetches = await Promise.all(
+        monthsAffected.map(async (m) => {
+          const rows = await fetchPrayerTimes(m);
+          const byDay = new Map(rows.map((r) => [r.day, r]));
+          return [m, byDay] as [number, Map<number, PrayerTime>];
+        })
+      );
+      setExistingData(new Map(fetches));
+    } catch {
+      // If fetch fails, just show new values without diff
+      setExistingData(new Map());
+    }
+    setStage('parsed');
+  };
 
   const handleImport = async () => {
     if (validRows.length === 0) return;
@@ -394,13 +386,11 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
       setProgress(`Saving ${validRows.length} rows across ${totalMonths} month${totalMonths !== 1 ? 's' : ''}…`);
       try {
         const resultMap = await bulkUpdatePrayerTimesFromYearCsv(rowsByMonth);
-        // Do NOT update cache here — let PrayerTimes.handleCsvImported own the cache
         setStage('done');
         setProgress('');
         const totalSaved = validRows.length;
         toast.success(`${totalSaved} row${totalSaved !== 1 ? 's' : ''} imported across ${resultMap.size} month${resultMap.size !== 1 ? 's' : ''} for ${year}.`);
         onImported(resultMap);
-        setTimeout(() => handleClose(), 1000);
       } catch (err) {
         console.error('CSV year import error:', err);
         toast.error('Import failed. Check the console for details.');
@@ -411,12 +401,10 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
       setProgress(`Saving ${validRows.length} rows for ${monthName}…`);
       try {
         const updated = await bulkUpdatePrayerTimesFromCsv(month, validRows);
-        // Do NOT update cache here — let PrayerTimes.handleCsvImported own the cache
         setStage('done');
         setProgress('');
         toast.success(`${updated.length} row${updated.length !== 1 ? 's' : ''} imported for ${monthName}.`);
         onImported(new Map([[month, updated]]));
-        setTimeout(() => handleClose(), 1000);
       } catch (err) {
         console.error('CSV import error:', err);
         toast.error('Import failed. Check the console for details.');
@@ -426,18 +414,31 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
     }
   };
 
-  const previewCols = CSV_COLUMNS.filter((col) => validRows.some((r) => col in r.fields));
   const effectiveScope = parseResult?.isYearScope ?? (scope === 'year');
+
+  // Columns that actually have data in the valid rows
+  const previewCols = CSV_COLUMNS.filter((col) => validRows.some((r) => col in r.fields));
+
+  // Count cells that are actually changing
+  const changedCellCount = validRows.reduce((acc, r) => {
+    const existing = existingData.get(r.month)?.get(r.day);
+    if (!existing) return acc + Object.keys(r.fields).length;
+    return acc + previewCols.filter((col) => {
+      const newVal = (r.fields as Record<string, string | null>)[col];
+      const oldVal = (existing as Record<string, string | null | undefined>)[col];
+      return newVal !== (oldVal ?? null);
+    }).length;
+  }, 0);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="w-full max-w-2xl max-h-[92vh] overflow-y-auto mx-2 sm:mx-auto border-[hsl(140_20%_88%)]">
+      <DialogContent className="w-full max-w-4xl max-h-[92vh] overflow-y-auto mx-2 sm:mx-auto border-[hsl(140_20%_88%)]">
         <DialogHeader>
           <DialogTitle className="text-sm sm:text-base font-bold flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
               <Upload size={15} className="text-[hsl(142_60%_32%)]" />
             </div>
-            <span>Import Prayer Times CSV</span>
+            Import Prayer Times CSV
           </DialogTitle>
           <p className="text-xs text-muted-foreground pt-1 leading-relaxed">
             Upload or paste prayer times in HH:MM format — including directly from Excel.
@@ -448,23 +449,17 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
         {stage === 'idle' && (
           <div className="flex gap-1 p-1 rounded-xl bg-muted/60 border border-border">
             {(['upload', 'paste'] as InputMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setInputMode(mode)}
+              <button key={mode} onClick={() => setInputMode(mode)}
                 className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
                   inputMode === mode
                     ? 'bg-white shadow-sm text-[hsl(150_30%_12%)] border border-[hsl(140_20%_88%)]'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
+                    : 'text-muted-foreground hover:text-foreground'}`}>
                 {mode === 'upload' ? <FileUp size={13} /> : <ClipboardPaste size={13} />}
                 {mode === 'upload' ? 'Upload File' : 'Paste from Excel'}
               </button>
             ))}
           </div>
         )}
-
-
 
         {/* ── Column hint ── */}
         {stage === 'idle' && (
@@ -479,36 +474,25 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
                 <code key={col} className="text-[10px] font-mono bg-muted/80 border border-border/60 px-1.5 py-0.5 rounded text-muted-foreground">{col}</code>
               ))}
             </div>
-            <p className="text-[10px] text-muted-foreground leading-snug">
-              Column names are case-insensitive; spaces allowed (e.g. "Fajr Jamat" = fajr_jamat).
-              Section header rows from Excel (e.g. "STARTING TIMES") are automatically skipped.
-              Jumu'ah times are not in the CSV — use the "Set Jumu'ah" tool on the Prayer Times page instead.
-            </p>
           </div>
         )}
 
         {/* ── Template download ── */}
         <div className="flex items-center justify-between rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 gap-2 flex-wrap">
           <span className="text-xs text-muted-foreground">Template available:</span>
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={() => downloadTemplate('year', year, month)} className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
-              <Download size={12} /> Full Year {year}
-            </button>
-          </div>
+          <button onClick={() => downloadTemplate('year', year, month)} className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
+            <Download size={12} /> Full Year {year}
+          </button>
         </div>
 
         {/* ── Upload drop zone ── */}
         {stage === 'idle' && inputMode === 'upload' && (
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDrop}
-            onClick={() => fileRef.current?.click()}
-            className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-[hsl(140_20%_88%)] rounded-xl p-8 sm:p-10 cursor-pointer hover:border-[hsl(142_50%_70%)] hover:bg-[hsl(142_50%_97%)] transition-all"
-          >
+          <div onDragOver={(e) => e.preventDefault()} onDrop={handleDrop} onClick={() => fileRef.current?.click()}
+            className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-[hsl(140_20%_88%)] rounded-xl p-8 sm:p-10 cursor-pointer hover:border-[hsl(142_50%_70%)] hover:bg-[hsl(142_50%_97%)] transition-all">
             <Upload size={28} className="text-[hsl(142_50%_70%)]" />
             <div className="text-center">
               <p className="text-sm font-medium">Drop CSV file here or tap to browse</p>
-              <p className="text-xs text-muted-foreground mt-1">DATE · FAJR · SUNRISE · Ishraq · Zawaal · ZUHR · ASR · Maghrib · ISHA · Fajr Jamat…</p>
+              <p className="text-xs text-muted-foreground mt-1">DATE · FAJR · SUNRISE · ZUHR · ASR · MAGHRIB · ISHA · Jamat times…</p>
             </div>
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
           </div>
@@ -518,42 +502,28 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
         {stage === 'idle' && inputMode === 'paste' && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-muted-foreground">
-                Select all cells in Excel and paste below (Ctrl+A then Ctrl+C)
-              </p>
-              <button
-                onClick={async () => {
+              <p className="text-xs font-semibold text-muted-foreground">Select all cells in Excel and paste below (Ctrl+A then Ctrl+C)</p>
+              <button onClick={async () => {
                   const text = await navigator.clipboard.readText().catch(() => '');
                   if (text) setPasteText(text);
                   else toast.error('Could not read clipboard. Paste manually.');
                 }}
-                className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-              >
+                className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
                 <ClipboardPaste size={11} /> Paste from clipboard
               </button>
             </div>
-            <textarea
-              value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
-              placeholder={`DATE\tFAJR\tSUNRISE\tIshraq\tZawaal\tZUHR\tASR\tMaghrib\tISHA\tFajr Jamat\t...
-01-Jan\t06:13\t08:25\t08:45\t11:43\t12:13\t14:13\t15:59\t17:48\t07:15\t...
-02-Jan\t06:13\t08:25\t08:45\t11:44\t12:14\t14:14\t16:00\t17:49\t07:15\t...`}
+            <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)}
+              placeholder={`DATE\tFAJR\tSUNRISE\tZUHR\tASR\tMAGHRIB\tISHA\t...\n01-Jan\t06:13\t08:25\t12:13\t14:13\t15:59\t17:48\t...`}
               className="w-full h-44 font-mono text-xs rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(142_30%_97%)] px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-[hsl(142_60%_35%/0.3)] focus:border-[hsl(142_50%_70%)] placeholder:text-muted-foreground/50 transition-all"
-              spellCheck={false}
-            />
+              spellCheck={false} />
             <div className="flex items-center justify-between">
               <p className="text-[10px] text-muted-foreground">
                 {pasteText.trim()
                   ? `${pasteText.trim().split('\n').length} line${pasteText.trim().split('\n').length !== 1 ? 's' : ''} detected`
                   : 'Section header rows like "STARTING TIMES" are automatically skipped'}
               </p>
-              <Button
-                onClick={handlePasteSubmit}
-                disabled={!pasteText.trim()}
-                size="sm"
-                className="gap-2"
-                style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
-              >
+              <Button onClick={handlePasteSubmit} disabled={!pasteText.trim()} size="sm" className="gap-2"
+                style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
                 <CheckCircle2 size={13} /> Validate CSV
               </Button>
             </div>
@@ -565,9 +535,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
           <div className="space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-muted-foreground">File: <strong className="text-foreground">{fileName}</strong></span>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
-                {parseResult.rows.length} row{parseResult.rows.length !== 1 ? 's' : ''} found
-              </span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">{parseResult.rows.length} rows found</span>
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${effectiveScope ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
                 {effectiveScope ? `Year scope — ${monthsAffected.length} month${monthsAffected.length !== 1 ? 's' : ''}` : `Month scope — ${monthName}`}
               </span>
@@ -592,32 +560,21 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
 
             {blockingIssues.length > 0 && (
               <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 space-y-2">
-                <div className="flex items-center gap-2 text-destructive font-semibold text-xs">
-                  <AlertCircle size={14} /> {blockingIssues.length} blocking issue{blockingIssues.length !== 1 ? 's' : ''} — import blocked
-                </div>
+                <div className="flex items-center gap-2 text-destructive font-semibold text-xs"><AlertCircle size={14} /> Blocking issues</div>
                 {blockingIssues.map((issue, i) => <p key={i} className="text-xs text-destructive pl-5">{issue.message}</p>)}
               </div>
             )}
 
             {warningIssues.length > 0 && (
               <div className="rounded-lg border border-amber-300/60 bg-amber-50 p-3 space-y-2">
-                <div className="flex items-center gap-2 text-amber-700 font-semibold text-xs">
-                  <AlertTriangle size={14} /> {warningIssues.length} warning{warningIssues.length !== 1 ? 's' : ''} — import will skip these columns
-                </div>
-                {warningIssues.map((issue, i) => (
-                  <div key={i} className="pl-5">
-                    <p className="text-xs text-amber-700">{issue.message}</p>
-                    {issue.suggestion && <p className="text-xs text-amber-600 mt-0.5 italic">{issue.suggestion}</p>}
-                  </div>
-                ))}
+                <div className="flex items-center gap-2 text-amber-700 font-semibold text-xs"><AlertTriangle size={14} /> Warnings</div>
+                {warningIssues.map((issue, i) => <p key={i} className="text-xs text-amber-700 pl-5">{issue.message}</p>)}
               </div>
             )}
 
             {allRowErrors.length > 0 && (
               <div className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-1 max-h-32 overflow-y-auto">
-                <div className="flex items-center gap-2 text-red-700 font-semibold text-xs mb-1">
-                  <AlertCircle size={13} /> {allRowErrors.length} row error{allRowErrors.length !== 1 ? 's' : ''} — affected rows skipped
-                </div>
+                <div className="flex items-center gap-2 text-red-700 font-semibold text-xs mb-1"><AlertCircle size={13} /> {allRowErrors.length} row errors — affected rows skipped</div>
                 {allRowErrors.map((e, i) => <p key={i} className="text-xs text-red-700 pl-4">{e}</p>)}
               </div>
             )}
@@ -630,9 +587,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
                     {validRows.length} valid row{validRows.length !== 1 ? 's' : ''} ready to import
                     {effectiveScope && ` across ${monthsAffected.length} month${monthsAffected.length !== 1 ? 's' : ''}`}
                   </p>
-                  {warningIssues.length > 0 && (
-                    <p className="text-xs text-emerald-600 mt-0.5">Unrecognised columns will be ignored.</p>
-                  )}
+                  <p className="text-xs text-emerald-600 mt-0.5">Click "Preview Changes" to see exactly what will be updated before saving.</p>
                 </div>
               </div>
             )}
@@ -649,7 +604,15 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
           </div>
         )}
 
-        {/* ── Preview ── */}
+        {/* ── Loading existing data for diff ── */}
+        {stage === 'loadingExisting' && (
+          <div className="flex items-center justify-center py-10 gap-3 text-muted-foreground">
+            <Loader2 size={16} className="animate-spin text-[hsl(142_60%_35%)]" />
+            <span className="text-sm">Fetching current times to show changes…</span>
+          </div>
+        )}
+
+        {/* ── Preview with diff ── */}
         {(stage === 'parsed' || stage === 'saving' || stage === 'done') && parseResult && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
@@ -657,6 +620,11 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
               <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">{validRows.length} valid row{validRows.length !== 1 ? 's' : ''}</span>
               {errorRows.length > 0 && <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">{errorRows.length} skipped</span>}
               {effectiveScope && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">{monthsAffected.length} month{monthsAffected.length !== 1 ? 's' : ''}</span>}
+              {changedCellCount > 0 && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium border border-amber-200">
+                  {changedCellCount} cell{changedCellCount !== 1 ? 's' : ''} changing
+                </span>
+              )}
             </div>
 
             {effectiveScope && monthsAffected.length > 0 && (
@@ -669,45 +637,76 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
               </div>
             )}
 
+            {/* Diff legend */}
+            {existingData.size > 0 && (
+              <div className="flex items-center gap-3 text-[10px] text-muted-foreground bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 flex-wrap">
+                <span className="font-semibold text-amber-700">Change legend:</span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="font-mono text-red-400 line-through">old</span>
+                  <ArrowRight size={8} className="text-amber-400" />
+                  <span className="font-mono font-bold text-emerald-700">new</span>
+                  <span className="ml-1">= value changing</span>
+                </span>
+                <span className="font-mono text-muted-foreground">same = unchanged</span>
+              </div>
+            )}
+
             {validRows.length > 0 && (
               <div className="rounded-lg border border-border overflow-hidden">
-                <div className="max-h-48 overflow-y-auto overflow-x-auto">
+                <div className="max-h-64 overflow-y-auto overflow-x-auto">
                   <table className="w-full text-xs border-collapse">
-                    <thead className="bg-muted/60 sticky top-0">
+                    <thead className="bg-muted/60 sticky top-0 z-10">
                       <tr>
-                        {effectiveScope && <th className="px-3 py-1.5 text-left font-semibold border-b border-border">Month</th>}
-                        <th className="px-3 py-1.5 text-left font-semibold border-b border-border">Day</th>
+                        {effectiveScope && <th className="px-2 py-1.5 text-left font-semibold border-b border-border whitespace-nowrap">Month</th>}
+                        <th className="px-2 py-1.5 text-left font-semibold border-b border-border">Day</th>
                         {previewCols.map((col) => (
-                          <th key={col} className="px-3 py-1.5 text-left font-semibold border-b border-border whitespace-nowrap">{col}</th>
+                          <th key={col} className="px-2 py-1.5 text-left font-semibold border-b border-border whitespace-nowrap">{col}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {validRows.slice(0, 60).map((r, i) => (
-                        <tr key={i} className="border-b border-border/50 hover:bg-muted/30">
-                          {effectiveScope && (
-                            <td className="px-3 py-1 font-mono font-bold text-primary text-[10px]">{MONTHS_FULL[r.month - 1].slice(0, 3)}</td>
-                          )}
-                          <td className="px-3 py-1 font-mono font-bold">{r.day}</td>
-                          {previewCols.map((col) => (
-                            <td key={col} className="px-3 py-1 font-mono text-muted-foreground">
-                              {(r.fields as Record<string, string | null>)[col] ?? <span className="text-muted-foreground/40">—</span>}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
+                      {validRows.slice(0, 100).map((r, i) => {
+                        const existing = existingData.get(r.month)?.get(r.day);
+                        const hasAnyChange = previewCols.some((col) => {
+                          const newVal = (r.fields as Record<string, string | null>)[col];
+                          const oldVal = existing ? (existing as Record<string, string | null | undefined>)[col] : undefined;
+                          return newVal !== (oldVal ?? null);
+                        });
+                        return (
+                          <tr key={i} className={`border-b border-border/40 ${hasAnyChange ? 'bg-amber-50/40' : 'hover:bg-muted/20'}`}>
+                            {effectiveScope && (
+                              <td className="px-2 py-1 font-mono font-bold text-primary text-[10px] whitespace-nowrap">
+                                {MONTHS_FULL[r.month - 1].slice(0, 3)}
+                              </td>
+                            )}
+                            <td className="px-2 py-1 font-mono font-bold">{r.day}</td>
+                            {previewCols.map((col) => {
+                              const newVal = (r.fields as Record<string, string | null>)[col] ?? null;
+                              const oldVal = existing ? ((existing as Record<string, string | null | undefined>)[col] ?? null) : null;
+                              return (
+                                <td key={col} className="px-2 py-1 whitespace-nowrap">
+                                  {existingData.size > 0
+                                    ? <DiffCell oldVal={oldVal} newVal={newVal} />
+                                    : <span className="font-mono text-muted-foreground">{newVal ?? <span className="opacity-30">—</span>}</span>
+                                  }
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
-                {validRows.length > 60 && (
-                  <p className="text-xs text-muted-foreground px-3 py-1 border-t border-border bg-muted/30">Showing 60 of {validRows.length} rows</p>
+                {validRows.length > 100 && (
+                  <p className="text-xs text-muted-foreground px-3 py-1 border-t border-border bg-muted/30">Showing 100 of {validRows.length} rows</p>
                 )}
               </div>
             )}
 
             {stage === 'done' && (
               <div className="flex items-center gap-2 text-sm text-emerald-700 font-medium">
-                <CheckCircle2 size={16} /> Import complete!
+                <CheckCircle2 size={16} /> Import complete! Calendar updated.
               </div>
             )}
 
@@ -726,18 +725,18 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
         )}
 
         <DialogFooter className="gap-2 pt-1 flex-col sm:flex-row">
-          <Button variant="outline" onClick={handleClose} disabled={stage === 'saving'} className="w-full sm:w-auto border-[hsl(140_20%_88%)]">
+          <Button variant="outline" onClick={handleClose} disabled={stage === 'saving' || stage === 'loadingExisting'} className="w-full sm:w-auto border-[hsl(140_20%_88%)]">
             {stage === 'done' ? 'Close' : 'Cancel'}
           </Button>
 
           {stage === 'validating' && canProceed && (
-            <Button onClick={proceedToPreview} className="w-full sm:w-auto" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
-              Preview {validRows.length} Row{validRows.length !== 1 ? 's' : ''} →
+            <Button onClick={proceedToPreview} className="w-full sm:w-auto gap-2" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+              Preview Changes →
             </Button>
           )}
 
           {stage === 'parsed' && validRows.length > 0 && (
-            <Button onClick={handleImport} disabled={stage === 'saving'} className="w-full sm:w-auto" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+            <Button onClick={handleImport} disabled={stage === 'saving'} className="w-full sm:w-auto gap-2" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
               Import {validRows.length} Row{validRows.length !== 1 ? 's' : ''}
               {effectiveScope && ` (${monthsAffected.length} months)`}
             </Button>
