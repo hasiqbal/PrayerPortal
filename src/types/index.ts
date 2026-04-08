@@ -49,7 +49,7 @@ export type DhikrPayload = Omit<Dhikr, 'id' | 'created_at' | 'updated_at'>;
 
 // Slug → display label mapping
 export const PRAYER_TIME_LABELS: Record<string, string> = {
-  'before-fajr': 'Before Fajr',
+  'before-fajr': 'Before Fajr & Tahajjud',
   'fajr': 'Fajr',
   'after-fajr': 'After Fajr',
   'ishraq': 'Ishraq',
