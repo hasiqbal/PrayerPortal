@@ -1,6 +1,8 @@
+
 import { useState } from 'react';
-import { CalendarDays, BookOpen, Database, Bell, BellRing, Menu, X, Home, FileSpreadsheet, Star, BarChart2 } from 'lucide-react';
-import { NavLink } from 'react-router-dom';
+import { CalendarDays, BookOpen, Database, Bell, BellRing, Menu, X, Home, FileSpreadsheet, Star, BarChart2, LogOut } from 'lucide-react';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 import masjidLogo from '@/assets/masjid-logo.png';
 
 const NAV_ITEMS = [
@@ -72,17 +74,43 @@ const NavContent = ({ onNavClick }: { onNavClick?: () => void }) => (
     </nav>
 
     {/* Footer */}
+    <SidebarFooter onNavClick={onNavClick} />
+  </div>
+);
+
+const SidebarFooter = ({ onNavClick }: { onNavClick?: () => void }) => {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login');
+    onNavClick?.();
+  };
+
+  return (
     <div className="px-4 py-4 border-t border-[hsl(var(--sidebar-border))] mt-auto">
       <div className="flex items-center gap-1.5 mb-1">
         <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block animate-pulse" />
         <span className="text-[11px] font-semibold text-green-600">Live</span>
       </div>
-      <p className="text-[10px] text-[hsl(var(--muted-foreground))]">
-        Team JMN · v2
-      </p>
+      {user ? (
+        <div className="flex items-center justify-between gap-1 mt-1">
+          <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate flex-1">{user.email}</p>
+          <button
+            onClick={handleSignOut}
+            className="p-1 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"
+            title="Sign out"
+          >
+            <LogOut size={13} />
+          </button>
+        </div>
+      ) : (
+        <p className="text-[10px] text-[hsl(var(--muted-foreground))]">Team JMN · v2</p>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 const MobileBrand = () => (
   <div className="flex items-center gap-2.5">

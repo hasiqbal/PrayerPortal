@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthContext, useAuthState } from "@/hooks/useAuth";
 
 // Pages
 import Dashboard from "./pages/Dashboard";
@@ -29,32 +30,42 @@ const queryClient = new QueryClient({
   },
 });
 
+// Wrap the router with auth state so all pages can access useAuth()
+const AppRoutes = () => {
+  const auth = useAuthState();
+  return (
+    <AuthContext.Provider value={auth}>
+      <Routes>
+        {/* Public */}
+        <Route path="/login" element={<Login />} />
+
+        {/* Main portal */}
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/prayer-times" element={<PrayerTimes />} />
+        <Route path="/adhkar" element={<Adhkar />} />
+        <Route path="/announcements" element={<Announcements />} />
+        <Route path="/sunnah-reminders" element={<SunnahReminders />} />
+        <Route path="/notifications" element={<Notifications />} />
+        <Route path="/analytics" element={<Analytics />} />
+        <Route path="/cloud-data" element={<CloudData />} />
+        <Route path="/excel-converter" element={<ExcelConverter />} />
+
+        {/* Legacy redirects */}
+        <Route path="/index" element={<Navigate to="/" replace />} />
+
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </AuthContext.Provider>
+  );
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          {/* Public */}
-          <Route path="/login" element={<Login />} />
-
-          {/* Main portal */}
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/prayer-times" element={<PrayerTimes />} />
-          <Route path="/adhkar" element={<Adhkar />} />
-          <Route path="/announcements" element={<Announcements />} />
-          <Route path="/sunnah-reminders" element={<SunnahReminders />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/cloud-data" element={<CloudData />} />
-          <Route path="/excel-converter" element={<ExcelConverter />} />
-
-          {/* Legacy redirects */}
-          <Route path="/index" element={<Navigate to="/" replace />} />
-
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <AppRoutes />
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

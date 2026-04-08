@@ -18,19 +18,27 @@ const MONTHS_FULL = [
 ];
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
-function toMinutes(timeStr: string | null | undefined): number | null {
+function toSeconds(timeStr: string | null | undefined): number | null {
   if (!timeStr) return null;
-  const [h, m] = timeStr.split(':').map(Number);
+  const parts = timeStr.split(':').map(Number);
+  const h = parts[0], m = parts[1], s = parts[2] ?? 0;
   if (isNaN(h) || isNaN(m)) return null;
-  return h * 60 + m;
+  return h * 3600 + m * 60 + s;
 }
 
-function formatCountdown(mins: number): string {
-  if (mins <= 0) return 'Now';
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+function toMinutes(timeStr: string | null | undefined): number | null {
+  const s = toSeconds(timeStr);
+  return s === null ? null : Math.floor(s / 60);
+}
+
+function formatCountdown(totalSeconds: number): string {
+  if (totalSeconds <= 0) return 'Now';
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`;
+  if (m > 0) return `${m}m ${String(s).padStart(2,'0')}s`;
+  return `${s}s`;
 }
 
 // ─── Next Prayer Countdown ────────────────────────────────────────────────────
@@ -42,55 +50,120 @@ interface PrayerEntry {
   color: string;
 }
 
+type CountdownPhase = 'to-start' | 'to-jamat' | 'in-jamat';
+
+interface CountdownState {
+  next: PrayerEntry & { secsToStart: number };
+  phase: CountdownPhase;
+  secsRemaining: number;
+  phaseLabel: string;
+}
+
+function computeCountdown(prayers: PrayerEntry[], nowSecs: number): CountdownState | null {
+  const entries = prayers
+    .filter((p) => p.startTime)
+    .map((p) => ({
+      ...p,
+      startSecs: toSeconds(p.startTime) ?? 0,
+      jamatSecs: toSeconds(p.jamatTime) ?? null,
+    }));
+
+  // Check if we're currently between start and jamat of any prayer
+  for (const e of entries) {
+    if (e.jamatSecs !== null && nowSecs >= e.startSecs && nowSecs < e.jamatSecs) {
+      return {
+        next: { ...e, secsToStart: 0 },
+        phase: 'to-jamat',
+        secsRemaining: e.jamatSecs - nowSecs,
+        phaseLabel: 'Until Jamāʿat',
+      };
+    }
+    if (e.jamatSecs !== null && nowSecs >= e.jamatSecs && nowSecs < e.jamatSecs + 300) {
+      return {
+        next: { ...e, secsToStart: 0 },
+        phase: 'in-jamat',
+        secsRemaining: 0,
+        phaseLabel: 'Jamāʿat Now',
+      };
+    }
+  }
+
+  // Otherwise find next upcoming prayer by start time
+  const upcoming = entries
+    .filter((e) => e.startSecs > nowSecs)
+    .sort((a, b) => a.startSecs - b.startSecs);
+
+  if (!upcoming.length) return null;
+  const next = upcoming[0];
+  return {
+    next: { ...next, secsToStart: next.startSecs - nowSecs },
+    phase: 'to-start',
+    secsRemaining: next.startSecs - nowSecs,
+    phaseLabel: 'Until Start',
+  };
+}
+
 const NextPrayerCountdown = ({ prayers }: { prayers: PrayerEntry[] }) => {
-  const [tick, setTick] = useState(0);
+  const [nowSecs, setNowSecs] = useState(() => {
+    const n = new Date();
+    return n.getHours() * 3600 + n.getMinutes() * 60 + n.getSeconds();
+  });
 
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    const id = setInterval(() => {
+      const n = new Date();
+      setNowSecs(n.getHours() * 3600 + n.getMinutes() * 60 + n.getSeconds());
+    }, 1000);
     return () => clearInterval(id);
   }, []);
 
-  const now = new Date();
-  const currentMins = now.getHours() * 60 + now.getMinutes();
+  const state = computeCountdown(prayers, nowSecs);
+  if (!state) return null;
 
-  // Find the next prayer by start time
-  const upcoming = prayers
-    .filter((p) => p.startTime)
-    .map((p) => ({ ...p, mins: toMinutes(p.startTime) ?? 0 }))
-    .filter((p) => p.mins > currentMins)
-    .sort((a, b) => a.mins - b.mins);
+  const { next, phase, secsRemaining, phaseLabel } = state;
 
-  const next = upcoming[0];
-  if (!next) return null;
-
-  const minsUntil = next.mins - currentMins;
+  const bgColor = phase === 'in-jamat'
+    ? 'linear-gradient(135deg, hsl(25 100% 96%), hsl(25 80% 98%))'
+    : 'linear-gradient(135deg, hsl(142 50% 96%), hsl(142 40% 98%))';
+  const borderColor = phase === 'in-jamat' ? 'hsl(25 80% 82%)' : 'hsl(142 40% 82%)';
+  const countdownColor = phase === 'in-jamat' ? '#ea580c' : next.color;
 
   return (
     <div
       className="rounded-xl px-4 py-3 flex items-center gap-4 border"
-      style={{
-        background: `linear-gradient(135deg, hsl(142 50% 96%), hsl(142 40% 98%))`,
-        borderColor: 'hsl(142 40% 82%)',
-      }}
+      style={{ background: bgColor, borderColor }}
     >
       <div
         className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-        style={{ background: next.color + '22', border: `1.5px solid ${next.color}33` }}
+        style={{ background: countdownColor + '22', border: `1.5px solid ${countdownColor}33` }}
       >
-        <Timer size={18} style={{ color: next.color }} />
+        <Timer size={18} style={{ color: countdownColor }} className={phase === 'in-jamat' ? 'animate-pulse' : ''} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Next Prayer</p>
-        <p className="text-sm font-extrabold text-[hsl(150_30%_12%)]">{next.label}</p>
-        {next.jamatTime && (
+        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+          {phase === 'to-start' ? 'Next Prayer' : phase === 'to-jamat' ? next.label + ' — In Progress' : next.label}
+        </p>
+        <p className="text-sm font-extrabold text-[hsl(150_30%_12%)]">
+          {phase === 'in-jamat' ? 'Jamāʿat in progress' : next.label}
+        </p>
+        {phase === 'to-start' && next.jamatTime && (
           <p className="text-[11px] text-muted-foreground">Jamāʿat at {next.jamatTime}</p>
+        )}
+        {phase === 'to-jamat' && (
+          <p className="text-[11px] text-muted-foreground">Started at {next.startTime}</p>
         )}
       </div>
       <div className="text-right shrink-0">
-        <p className="text-2xl font-extrabold tabular-nums" style={{ color: next.color }}>
-          {formatCountdown(minsUntil)}
-        </p>
-        <p className="text-[10px] text-muted-foreground">{next.startTime}</p>
+        {phase === 'in-jamat' ? (
+          <p className="text-sm font-extrabold px-2 py-1 rounded-lg bg-orange-100 text-orange-600">Jamāʿat Now</p>
+        ) : (
+          <>
+            <p className="text-2xl font-extrabold tabular-nums" style={{ color: countdownColor }}>
+              {formatCountdown(secsRemaining)}
+            </p>
+            <p className="text-[10px] text-muted-foreground">{phaseLabel}</p>
+          </>
+        )}
       </div>
     </div>
   );
