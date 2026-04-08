@@ -277,20 +277,7 @@ export async function bulkUpdatePrayerTimesFromCsv(
 ): Promise<PrayerTime[]> {
   if (rows.length === 0) return [];
 
-  // ── Strategy 1: upsert by (month, day) unique constraint ─────────────────
-  // Requires: ALTER TABLE prayer_times ADD CONSTRAINT prayer_times_month_day_unique UNIQUE (month, day);
-  const payload = rows.map(({ day, fields }) => ({ month, day, ...fields }));
-
-  const { data: upserted, error: upsertError } = await supabase
-    .from('prayer_times')
-    .upsert(payload, { onConflict: 'month,day', ignoreDuplicates: false })
-    .select();
-
-  if (!upsertError) return (upserted ?? []) as PrayerTime[];
-
-  // ── Strategy 2: fallback — fetch existing IDs and update + insert new ────
-  console.warn('Upsert failed (unique constraint may be missing), falling back to update+insert:', upsertError.message);
-
+  // ── Step 1: fetch existing rows for this month to build a day→id map ──────
   const existing = await fetchPrayerTimes(month);
   const dayToId = new Map(existing.map((r) => [r.day, r.id]));
 
@@ -306,19 +293,48 @@ export async function bulkUpdatePrayerTimesFromCsv(
     }
   }
 
-  const updateResults = await Promise.all(toUpdate.map(({ id, fields }) => updatePrayerTime(id, fields)));
+  console.log(`Month ${month}: updating ${toUpdate.length} existing rows, inserting ${toInsert.length} new rows`);
 
-  let insertResults: PrayerTime[] = [];
-  if (toInsert.length > 0) {
-    const { data: inserted, error: insertError } = await supabase
-      .from('prayer_times')
-      .insert(toInsert)
-      .select();
-    if (insertError) console.error('Insert new rows error:', insertError.message);
-    insertResults = (inserted ?? []) as PrayerTime[];
+  // ── Step 2: batch update existing rows ────────────────────────────────────
+  // PATCH requests succeed (200) but return [] due to RLS on external Supabase.
+  // We fire all updates and track count by how many we sent, not what's returned.
+  let updatedCount = 0;
+  if (toUpdate.length > 0) {
+    const updatePromises = toUpdate.map(async ({ id, fields }) => {
+      const { error } = await supabase
+        .from('prayer_times')
+        .update(fields)
+        .eq('id', id);
+      if (error) {
+        console.error(`Update failed for row id ${id}:`, error.message);
+        return false;
+      }
+      return true;
+    });
+    const results = await Promise.all(updatePromises);
+    updatedCount = results.filter(Boolean).length;
   }
 
-  return [...updateResults.flat(), ...insertResults];
+  // ── Step 3: insert new rows ───────────────────────────────────────────────
+  let insertedCount = 0;
+  if (toInsert.length > 0) {
+    const { error: insertError } = await supabase
+      .from('prayer_times')
+      .insert(toInsert);
+    if (insertError) {
+      console.error('Insert new rows error:', insertError.message);
+      throw new Error(`Failed to insert new prayer time rows: ${insertError.message}`);
+    }
+    insertedCount = toInsert.length;
+  }
+
+  // ── Step 4: re-fetch the month to get the actual saved data ──────────────
+  const saved = await fetchPrayerTimes(month);
+  console.log(`Month ${month}: ${updatedCount} updated, ${insertedCount} inserted, ${saved.length} total rows in DB`);
+
+  // Return updated/inserted rows by matching day numbers we processed
+  const processedDays = new Set(rows.map((r) => r.day));
+  return saved.filter((r) => processedDays.has(r.day));
 }
 
 export async function bulkUpdatePrayerTimesFromYearCsv(
