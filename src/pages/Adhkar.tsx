@@ -200,6 +200,7 @@ const SortableGroupSection = ({
   const [descEditing, setDescEditing] = useState(false);
   const [descValue, setDescValue] = useState('');
   const [descSaving, setDescSaving] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const icon = groupMeta?.icon ?? '📋';
@@ -455,17 +456,43 @@ const SortableGroupSection = ({
               <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
             ))}
           </select>
-          {/* Mobile-only action buttons */}
-          <div className="flex sm:hidden items-center gap-1">
-            <button onClick={() => onEditGroup(groupName, groupMeta)} className="p-1.5 rounded-lg hover:bg-accent/10 transition-colors" title="Edit icon, colours & badge">
-              <span className="text-[11px] font-bold" style={{ color: 'hsl(var(--accent))' }}>⚙</span>
+          {/* Mobile-only ⋮ More dropdown */}
+          <div className="relative flex sm:hidden" onClick={(e) => e.stopPropagation()}>
+            {moreMenuOpen && (
+              <div className="fixed inset-0 z-30" onClick={() => setMoreMenuOpen(false)} />
+            )}
+            <button
+              onClick={() => setMoreMenuOpen((v) => !v)}
+              className="flex items-center justify-center w-8 h-7 rounded-lg border border-border text-muted-foreground hover:bg-secondary/60 transition-colors text-base font-bold leading-none"
+              title="More actions"
+            >
+              ⋮
             </button>
-            <button onClick={() => onDuplicateGroup(groupName, items, groupMeta)} className="p-1.5 rounded-lg hover:bg-blue-50 transition-colors" title="Duplicate group">
-              <Copy size={12} className="text-blue-500" />
-            </button>
-            <button onClick={() => onDeleteGroup(groupName, groupMeta)} className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors" title="Delete group">
-              <Trash2 size={12} className="text-destructive" />
-            </button>
+            {moreMenuOpen && (
+              <div className="absolute right-0 bottom-full mb-1.5 z-40 bg-popover border border-border rounded-xl shadow-xl overflow-hidden min-w-[160px]">
+                <button
+                  onClick={() => { onEditGroup(groupName, groupMeta); setMoreMenuOpen(false); }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-foreground hover:bg-secondary/60 transition-colors text-left"
+                >
+                  <span className="text-sm" style={{ color: 'hsl(var(--accent))' }}>⚙</span>
+                  <span className="font-medium">Edit Style</span>
+                </button>
+                <button
+                  onClick={() => { onDuplicateGroup(groupName, items, groupMeta); setMoreMenuOpen(false); }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-foreground hover:bg-secondary/60 transition-colors text-left border-t border-border/50"
+                >
+                  <Copy size={13} className="text-blue-500 shrink-0" />
+                  <span className="font-medium">Duplicate Group</span>
+                </button>
+                <button
+                  onClick={() => { onDeleteGroup(groupName, groupMeta); setMoreMenuOpen(false); }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-destructive hover:bg-destructive/10 transition-colors text-left border-t border-border/50"
+                >
+                  <Trash2 size={13} className="shrink-0" />
+                  <span className="font-medium">Delete Group</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
