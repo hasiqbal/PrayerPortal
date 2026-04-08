@@ -957,6 +957,24 @@ const Adhkar = () => {
     console.log('[Adhkar] Duplicate complete. New group meta:', newGroupMeta);
   };
 
+  const handleDeleteGroup = async (name: string, meta: AdhkarGroup | undefined) => {
+    const groupEntries = adhkar.filter((d) => d.group_name === name);
+    const entryCount = groupEntries.length;
+    if (!confirm(`Delete group "${name}"?\n\nThis will also permanently delete all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} inside it. This cannot be undone.`)) return;
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.group_name !== name));
+    if (meta?.id) {
+      queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => old.filter((g) => g.id !== meta.id));
+      import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(meta.id)).catch(() => {});
+    }
+    setGroupModalOpen(false);
+    setEditGroup(null);
+    const { deleteDhikr: del } = await import('@/lib/api');
+    const results = await Promise.allSettled(groupEntries.map((d) => del(d.id)));
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed > 0) toast.error(`Group deleted but ${failed} entr${failed === 1 ? 'y' : 'ies'} failed to delete from backend.`);
+    else toast.success(`Group "${name}" and all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} deleted.`);
+  };
+
   // ─── Group handlers ───────────────────────────────────────────────────────
   const handleGroupsReordered = (cat: string, newGroupOrder: string[]) => {
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
@@ -1445,21 +1463,7 @@ const Adhkar = () => {
                     onRenameGroup={handleRenameGroup}
                     onDescriptionSave={handleDescriptionSave}
                     onReassignPrayerTime={handleReassignPrayerTime}
-                    onDeleteGroup={async (name, meta) => {
-                      const groupEntries = adhkar.filter((d) => d.group_name === name);
-                      const entryCount = groupEntries.length;
-                      if (!confirm(`Delete group "${name}"?\n\nThis will also permanently delete all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} inside it. This cannot be undone.`)) return;
-                      queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.group_name !== name));
-                      if (meta?.id) {
-                        queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => old.filter((g) => g.id !== meta.id));
-                        import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(meta.id)).catch(() => {});
-                      }
-                      const { deleteDhikr: del } = await import('@/lib/api');
-                      const results = await Promise.allSettled(groupEntries.map((d) => del(d.id)));
-                      const failed = results.filter((r) => r.status === 'rejected').length;
-                      if (failed > 0) toast.error(`Group deleted but ${failed} entr${failed === 1 ? 'y' : 'ies'} failed to delete from backend.`);
-                      else toast.success(`Group "${name}" and all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} deleted.`);
-                    }}
+                    onDeleteGroup={(name, meta) => handleDeleteGroup(name, meta)}
                     onDuplicateGroup={handleDuplicateGroup}
                     onAddToGroup={(name, pt) => handleOpenAdd(name, pt)}
                     onGroupsReordered={handleGroupsReordered}
@@ -1488,6 +1492,7 @@ const Adhkar = () => {
         existingGroups={groupsList}
         onSaved={handleGroupSaved}
         onMergeInto={handleMergeInto}
+        onDelete={(g) => handleDeleteGroup(g.name, g)}
       />
 
       {/* ── Move to Group Dialog ── */}
