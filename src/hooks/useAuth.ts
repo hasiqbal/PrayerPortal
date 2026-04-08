@@ -75,7 +75,6 @@ export function useAuthState(): AuthState {
       toast.dismiss(warningToastId.current);
       warningToastId.current = null;
     }
-    // Sign out of Supabase Auth so the authenticated JWT is revoked
     await supabase.auth.signOut();
   }, [user]);
 
@@ -102,10 +101,7 @@ export function useAuthState(): AuthState {
       password: PORTAL_SERVICE_PASSWORD,
     });
     if (error) {
-      // Non-fatal: log but don't block portal login
-      console.warn('Supabase Auth sign-in failed (write operations may be blocked):', error.message);
-    } else {
-      console.log('Supabase Auth session established — authenticated writes enabled.');
+      console.warn('[Auth] Supabase sign-in failed — authenticated writes may be blocked:', error.message);
     }
   }, []);
 

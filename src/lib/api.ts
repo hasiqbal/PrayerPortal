@@ -64,16 +64,12 @@ export async function fetchAdhkar(category?: string): Promise<Dhikr[]> {
 }
 
 export async function createDhikr(data: Partial<DhikrPayload>): Promise<Dhikr> {
-  console.log('createDhikr payload:', JSON.stringify(data));
   const { data: rows, error } = await supabase
     .from('adhkar')
     .insert(data)
     .select()
     .single();
-  if (error) {
-    console.error('createDhikr error:', error);
-    throw new Error(`Failed to create dhikr: ${error.message}`);
-  }
+  if (error) throw new Error(`Failed to create dhikr: ${error.message}`);
   return rows as Dhikr;
 }
 
@@ -84,10 +80,7 @@ export async function updateDhikr(id: string, data: Partial<DhikrPayload>): Prom
     .eq('id', id)
     .select()
     .single();
-  if (error) {
-    console.error('updateDhikr error:', error);
-    throw new Error(`Failed to update dhikr: ${error.message}`);
-  }
+  if (error) throw new Error(`Failed to update dhikr: ${error.message}`);
   return rows as Dhikr;
 }
 
@@ -117,10 +110,7 @@ export async function createAdhkarGroup(data: Partial<AdhkarGroupPayload>): Prom
     .insert(data)
     .select()
     .single();
-  if (error) {
-    console.error('createAdhkarGroup error:', error);
-    throw new Error(`Failed to create group: ${error.message}`);
-  }
+  if (error) throw new Error(`Failed to create group: ${error.message}`);
   return rows as AdhkarGroup;
 }
 
@@ -131,10 +121,7 @@ export async function updateAdhkarGroup(id: string, data: Partial<AdhkarGroupPay
     .eq('id', id)
     .select()
     .single();
-  if (error) {
-    console.error('updateAdhkarGroup error:', error);
-    throw new Error(`Failed to update group: ${error.message}`);
-  }
+  if (error) throw new Error(`Failed to update group: ${error.message}`);
   return rows as AdhkarGroup;
 }
 
@@ -280,22 +267,14 @@ export async function bulkUpdatePrayerTimesFromCsv(
   // Build upsert payload — include month + day so the DB can match existing rows
   const payload = rows.map(({ day, fields }) => ({ month, day, ...fields }));
 
-  console.log(`Month ${month}: upserting ${payload.length} rows`, payload.slice(0, 2));
-
-  // Single upsert call — OnSpace Cloud anon key has full permissive policies
-  // so this will INSERT new rows and UPDATE existing ones in one shot.
   const { data, error } = await supabase
     .from('prayer_times')
     .upsert(payload, { onConflict: 'month,day', ignoreDuplicates: false })
     .select();
 
   if (error) {
-    console.error(`Upsert failed for month ${month}:`, error.message, error);
-    // Fallback: try individual updates if upsert constraint doesn't exist
     return await _fallbackUpdateMonth(month, rows);
   }
-
-  console.log(`Month ${month}: upserted ${data?.length ?? 0} rows successfully`);
 
   // Always re-fetch to confirm DB state and return fresh data
   return await fetchPrayerTimes(month);
@@ -306,8 +285,6 @@ async function _fallbackUpdateMonth(
   month: number,
   rows: { day: number; fields: PrayerTimeUpdate }[]
 ): Promise<PrayerTime[]> {
-  console.log(`Month ${month}: falling back to individual updates`);
-
   const existing = await fetchPrayerTimes(month);
   const dayToId  = new Map(existing.map((r) => [r.day, r.id]));
 
@@ -322,21 +299,16 @@ async function _fallbackUpdateMonth(
 
   // Run all updates in parallel
   if (toUpdate.length > 0) {
-    const results = await Promise.all(
+    await Promise.all(
       toUpdate.map(({ id, fields }) =>
         supabase.from('prayer_times').update(fields).eq('id', id)
       )
     );
-    const failed = results.filter((r) => r.error);
-    if (failed.length > 0) {
-      console.error(`Month ${month}: ${failed.length} update(s) failed`, failed[0].error);
-    }
   }
 
   // Insert any new rows
   if (toInsert.length > 0) {
-    const { error } = await supabase.from('prayer_times').insert(toInsert);
-    if (error) console.error(`Month ${month}: insert failed`, error.message);
+    await supabase.from('prayer_times').insert(toInsert);
   }
 
   // Always return fresh data from DB

@@ -11,8 +11,9 @@ import { toast } from 'sonner';
 import { Loader2, ImagePlus, Trash2, ExternalLink, Copy } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
-const BASE_SUNNAH_URL = 'https://ucpmwygyuvbfehjpucpm.backend.onspace.ai/rest/v1/sunnah_reminders';
-const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjcG13eWd5dXZiZmVoanB1Y3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NDgxMTksImV4cCI6MjA1OTQyNDExOX0.i8tlNr0s9g7D7VhWKUFxXBwU_YhWEarUOBsmCIi-lEA';
+const SUPABASE_URL      = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTkxMTksImV4cCI6MjA5MTE3NTExOX0.Z3MV96PflYqwoexwsoi7ma4yAO3og1juWWu9YWviLbU';
+const SUNNAH_API_URL = `${SUPABASE_URL}/rest/v1/sunnah_reminders`;
 
 interface SunnahReminderModalProps {
   open: boolean;
@@ -60,8 +61,8 @@ const SunnahReminderModal = ({
   // Fetch group names from the external backend (not supabase local)
   useEffect(() => {
     if (!open) return;
-    fetch(`${BASE_SUNNAH_URL}?select=group_name,group_order&order=group_name.asc`, {
-      headers: { 'apikey': ANON_KEY, 'Content-Type': 'application/json' },
+    fetch(`${SUNNAH_API_URL}?select=group_name,group_order&order=group_name.asc`, {
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
     })
       .then((r) => r.json())
       .then((rows: { group_name: string | null; group_order: number | null }[]) => {

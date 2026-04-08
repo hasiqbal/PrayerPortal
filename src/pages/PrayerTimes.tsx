@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { isBST, lastSundayOf } from '@/lib/dateUtils';
+import { isBST } from '@/lib/dateUtils';
 import { SolarTimesCard } from '@/pages/Dashboard';
 
 const HIJRI_OFFSET_KEY = 'hijri_offset';
@@ -212,7 +212,6 @@ const PrayerTimes = () => {
   }, [queryClient]);
 
   const monthHasBSTChange = (m: number) => m === 3 || m === 10;
-  const _bstStartDay = lastSundayOf(selectedYear, 3);
   const isBstMonth = isBST(selectedYear, selectedMonth, 15);
 
   return (

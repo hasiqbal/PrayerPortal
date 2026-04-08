@@ -126,8 +126,7 @@ const EditPrayerTimeModal = ({ row, onClose, onSaved }: EditPrayerTimeModalProps
       const updated = result[0] ?? { ...row, ...payload };
       toast.success(`Day ${row.day} updated successfully`);
       onSaved(updated as PrayerTime);
-    } catch (err) {
-      console.error('Save error:', err);
+    } catch {
       toast.error('Failed to save changes. Please try again.');
     } finally {
       setSaving(false);

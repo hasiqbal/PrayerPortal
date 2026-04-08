@@ -12,12 +12,12 @@ import { BookOpen, Loader2, ChevronDown, ChevronUp, CheckCircle2, X, ImagePlus, 
 import { supabase } from '@/lib/supabase';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
-const BASE_URL = 'https://ucpmwygyuvbfehjpucpm.backend.onspace.ai/rest/v1';
-const ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjcG13eWd5dXZiZmVoanB1Y3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NDgxMTksImV4cCI6MjA1OTQyNDExOX0.i8tlNr0s9g7D7VhWKUFxXBwU_YhWEarUOBsmCIi-lEA';
+const SUPABASE_URL      = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTkxMTksImV4cCI6MjA5MTE3NTExOX0.Z3MV96PflYqwoexwsoi7ma4yAO3og1juWWu9YWviLbU';
+const ADHKAR_API_URL  = `${SUPABASE_URL}/rest/v1/adhkar`;
 const AUTH_HEADERS = {
   'Content-Type': 'application/json',
-  'apikey': ANON_KEY,
+  'apikey': SUPABASE_ANON_KEY,
 };
 
 // 114 Surah names for the picker
@@ -281,7 +281,7 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
 
   useEffect(() => {
     if (!open) return;
-    fetch(`${BASE_URL}/adhkar?select=group_name,group_order&order=group_name.asc,group_order.asc`, {
+    fetch(`${ADHKAR_API_URL}?select=group_name,group_order&order=group_name.asc,group_order.asc`, {
       headers: AUTH_HEADERS,
     })
       .then((r) => r.json())
