@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
 import { toast } from 'sonner';
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { activityLogger } from '@/services/activityLogService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -162,11 +162,20 @@ export function useAuthState(): AuthState {
     const adminPassword: string = storedCreds?.password ?? 'admin';
 
     if (normalised === 'admin' && password === adminPassword) {
-      // Best-effort: try to ensure the root admin row exists in the DB
-      supabase.from('portal_users').upsert(
+          // Best-effort: try to ensure the root admin row exists in the DB
+      supabaseAdmin.from('portal_users').upsert(
         { username: 'admin', name: 'Root Administrator', password: adminPassword, role: 'admin', is_active: true, created_by: 'system' },
         { onConflict: 'username' }
-      ).then(() => {});
+      ).then(() => {
+        // Also seed editor/viewer users on first login
+        supabaseAdmin.from('portal_users').upsert(
+          [
+            { username: 'masjid_editor', name: 'Masjid Editor', password: 'editor123', role: 'editor', is_active: true, created_by: 'admin' },
+            { username: 'masjid_viewer', name: 'Masjid Viewer', password: 'viewer123', role: 'viewer', is_active: true, created_by: 'admin' },
+          ],
+          { onConflict: 'username', ignoreDuplicates: true }
+        ).then(() => {});
+      });
 
       // Establish Supabase Auth session for authenticated write access
       await signIntoSupabase();

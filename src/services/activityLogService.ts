@@ -4,7 +4,7 @@
  * push notifications sent, user management, and auth events.
  */
 
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -87,7 +87,7 @@ class ActivityLogger {
       details: opts.details ?? null,
     };
 
-    const { error } = await supabase.from('activity_log').insert(entry);
+    const { error } = await supabaseAdmin.from('activity_log').insert(entry);
     if (error) {
       // Non-fatal — just warn in console so logs never break the UI
       console.warn('[ActivityLog] Failed to write log entry:', error.message, entry);
@@ -98,7 +98,7 @@ class ActivityLogger {
 
   /** Returns true if the activity_log table exists on this Supabase instance */
   async tableExists(): Promise<boolean> {
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from('activity_log')
       .select('id')
       .limit(1);
@@ -108,7 +108,7 @@ class ActivityLogger {
 
   /** Fetch recent log entries (most recent first) */
   async fetchRecent(limit = 100): Promise<ActivityLogEntry[]> {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('activity_log')
       .select('*')
       .order('created_at', { ascending: false })
@@ -128,7 +128,7 @@ class ActivityLogger {
 
   /** Fetch by entity type */
   async fetchByEntity(entityType: EntityType, limit = 50): Promise<ActivityLogEntry[]> {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('activity_log')
       .select('*')
       .eq('entity_type', entityType)
@@ -141,7 +141,7 @@ class ActivityLogger {
 
   /** Fetch by username */
   async fetchByUser(username: string, limit = 50): Promise<ActivityLogEntry[]> {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('activity_log')
       .select('*')
       .eq('username', username)

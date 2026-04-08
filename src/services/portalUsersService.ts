@@ -4,7 +4,11 @@
  * Only admin-role users should invoke mutating methods.
  */
 
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase';
+
+// All portal_users operations use the admin client (service role)
+// so they bypass RLS and never depend on the authenticated JWT policy.
+const db = supabaseAdmin;
 import type { UserRole } from '@/hooks/useAuth';
 import { activityLogger } from '@/services/activityLogService';
 
@@ -38,7 +42,7 @@ export interface UpdateUserPayload {
 export const portalUsersService = {
   /** Fetch all portal users (passwords omitted from UI display). */
   getAll: async (): Promise<PortalUser[]> => {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('portal_users')
       .select('id, username, name, role, is_active, created_by, last_login, created_at, updated_at')
       .order('role', { ascending: true })
@@ -53,13 +57,14 @@ export const portalUsersService = {
 
   /** Create a new portal user. */
   create: async (payload: CreateUserPayload): Promise<PortalUser> => {
+    // uses db (admin client) — no RLS restriction
     const username = payload.username.trim().toLowerCase();
     if (!username) throw new Error('Username is required.');
     if (username.length < 3) throw new Error('Username must be at least 3 characters.');
     if (!/^[a-z0-9_.-]+$/.test(username)) throw new Error('Username can only contain letters, numbers, underscores, dots, and hyphens.');
     if (!payload.password || payload.password.length < 6) throw new Error('Password must be at least 6 characters.');
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('portal_users')
       .insert({
         username,
@@ -94,7 +99,7 @@ export const portalUsersService = {
       update.password = payload.password.trim();
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('portal_users')
       .update(update)
       .eq('id', id)
@@ -117,7 +122,7 @@ export const portalUsersService = {
   /** Delete a portal user by ID. Cannot delete the root admin. */
   delete: async (id: string, requesterUsername: string): Promise<void> => {
     // Prevent deleting yourself
-    const { data: target } = await supabase
+    const { data: target } = await db
       .from('portal_users')
       .select('username, role')
       .eq('id', id)
@@ -130,7 +135,7 @@ export const portalUsersService = {
       throw new Error('The root admin account cannot be deleted.');
     }
 
-    const { error } = await supabase.from('portal_users').delete().eq('id', id);
+    const { error } = await db.from('portal_users').delete().eq('id', id);
     if (error) throw new Error(`Failed to delete user: ${error.message}`);
     activityLogger.log('user_deleted', 'portal_user', { entityId: id, entityLabel: target?.username });
   },
