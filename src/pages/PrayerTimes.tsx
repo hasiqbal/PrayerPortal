@@ -195,24 +195,21 @@ const PrayerTimes = () => {
   };
 
   const handleCsvImported = useCallback((updatedByMonth: Map<number, PrayerTime[]>) => {
-    // Write the re-fetched rows (returned from bulkUpdatePrayerTimesFromCsv
-    // which always does a fresh GET after all PATCHes complete) directly into
-    // the React Query cache for each affected month.
-    // We also mark those queries as invalidated so the next focus/mount will
-    // re-verify, but we do NOT trigger an immediate background refetch here
-    // because the data we have IS already fresh from the DB.
+    // The returned rows are already freshly fetched from DB inside
+    // bulkUpdatePrayerTimesFromCsv. Write them directly into cache.
     updatedByMonth.forEach((rows, m) => {
       if (rows.length > 0) {
         const sorted = [...rows].sort((a, b) => a.day - b.day);
         queryClient.setQueryData<PrayerTime[]>(['prayer_times', m], sorted);
-        queryClient.invalidateQueries({ queryKey: ['prayer_times', m], refetchType: 'none' });
       }
     });
-    // Force an immediate refetch for the currently-visible month to guarantee
-    // the table re-renders with the latest DB values.
-    queryClient.refetchQueries({ queryKey: ['prayer_times', selectedMonth], type: 'active' });
+    // Close modal first so the table re-renders with updated cache immediately
     setCsvModal(false);
-  }, [queryClient, selectedMonth]);
+    // Then invalidate all affected months so next navigation triggers a re-fetch
+    updatedByMonth.forEach((_rows, m) => {
+      queryClient.invalidateQueries({ queryKey: ['prayer_times', m] });
+    });
+  }, [queryClient]);
 
   const monthHasBSTChange = (m: number) => m === 3 || m === 10;
   const _bstStartDay = lastSundayOf(selectedYear, 3);

@@ -277,64 +277,70 @@ export async function bulkUpdatePrayerTimesFromCsv(
 ): Promise<PrayerTime[]> {
   if (rows.length === 0) return [];
 
-  // ── Step 1: fetch existing rows to build day→id map ──────────────────────
+  // Build upsert payload — include month + day so the DB can match existing rows
+  const payload = rows.map(({ day, fields }) => ({ month, day, ...fields }));
+
+  console.log(`Month ${month}: upserting ${payload.length} rows`, payload.slice(0, 2));
+
+  // Single upsert call — OnSpace Cloud anon key has full permissive policies
+  // so this will INSERT new rows and UPDATE existing ones in one shot.
+  const { data, error } = await supabase
+    .from('prayer_times')
+    .upsert(payload, { onConflict: 'month,day', ignoreDuplicates: false })
+    .select();
+
+  if (error) {
+    console.error(`Upsert failed for month ${month}:`, error.message, error);
+    // Fallback: try individual updates if upsert constraint doesn't exist
+    return await _fallbackUpdateMonth(month, rows);
+  }
+
+  console.log(`Month ${month}: upserted ${data?.length ?? 0} rows successfully`);
+
+  // Always re-fetch to confirm DB state and return fresh data
+  return await fetchPrayerTimes(month);
+}
+
+/** Fallback: update each row individually when upsert constraint is missing */
+async function _fallbackUpdateMonth(
+  month: number,
+  rows: { day: number; fields: PrayerTimeUpdate }[]
+): Promise<PrayerTime[]> {
+  console.log(`Month ${month}: falling back to individual updates`);
+
   const existing = await fetchPrayerTimes(month);
   const dayToId  = new Map(existing.map((r) => [r.day, r.id]));
 
-  const toUpdate: { id: string; day: number; fields: PrayerTimeUpdate }[] = [];
+  const toUpdate: { id: string; fields: PrayerTimeUpdate }[] = [];
   const toInsert: (PrayerTimeUpdate & { month: number; day: number })[] = [];
 
   for (const { day, fields } of rows) {
     const id = dayToId.get(day);
-    if (id) {
-      toUpdate.push({ id, day, fields });
-    } else {
-      toInsert.push({ month, day, ...fields });
-    }
+    if (id) toUpdate.push({ id, fields });
+    else     toInsert.push({ month, day, ...fields });
   }
 
-  console.log(`Month ${month}: updating ${toUpdate.length} rows, inserting ${toInsert.length} new rows`);
-
-  // ── Step 2: fire all UPDATEs without .select() — avoids 406 RLS issue ────
-  // The anon key on external Supabase blocks SELECT-after-UPDATE (returns 0 rows).
-  // We send plain PATCHes (no select), check only for errors, then re-fetch.
+  // Run all updates in parallel
   if (toUpdate.length > 0) {
-    const updateErrors = await Promise.all(
-      toUpdate.map(async ({ id, day, fields }) => {
-        const { error } = await supabase
-          .from('prayer_times')
-          .update(fields)
-          .eq('id', id);
-        if (error) {
-          console.error(`Update failed for month=${month} day=${day} id=${id}:`, error.message);
-          return error.message;
-        }
-        return null;
-      })
+    const results = await Promise.all(
+      toUpdate.map(({ id, fields }) =>
+        supabase.from('prayer_times').update(fields).eq('id', id)
+      )
     );
-    const failed = updateErrors.filter(Boolean);
+    const failed = results.filter((r) => r.error);
     if (failed.length > 0) {
-      console.warn(`Month ${month}: ${failed.length} row(s) failed to update.`);
+      console.error(`Month ${month}: ${failed.length} update(s) failed`, failed[0].error);
     }
   }
 
-  // ── Step 3: insert new rows (no select needed — we re-fetch anyway) ───────
+  // Insert any new rows
   if (toInsert.length > 0) {
-    const { error: insertError } = await supabase
-      .from('prayer_times')
-      .insert(toInsert);
-    if (insertError) {
-      console.error('Insert new rows error:', insertError.message);
-      throw new Error(`Failed to insert new prayer time rows: ${insertError.message}`);
-    }
+    const { error } = await supabase.from('prayer_times').insert(toInsert);
+    if (error) console.error(`Month ${month}: insert failed`, error.message);
   }
 
-  // ── Step 4: always re-fetch the full month from DB as the source of truth ─
-  // This is the only reliable way to get post-update values when
-  // SELECT-after-PATCH is blocked by RLS on the external Supabase anon key.
-  const fresh = await fetchPrayerTimes(month);
-  console.log(`Month ${month}: re-fetched ${fresh.length} rows after import.`);
-  return fresh;
+  // Always return fresh data from DB
+  return await fetchPrayerTimes(month);
 }
 
 export async function bulkUpdatePrayerTimesFromYearCsv(
