@@ -8,7 +8,8 @@ import { Switch } from '@/components/ui/switch';
 import { SunnahReminder, SUNNAH_CATEGORIES, SUNNAH_CATEGORY_LABELS } from '@/types';
 import { createSunnahReminder, updateSunnahReminder } from '@/lib/api';
 import { toast } from 'sonner';
-import { Loader2, ImagePlus, Trash2, ExternalLink, Copy } from 'lucide-react';
+import { Loader2, ImagePlus, Trash2, ExternalLink, Copy, Languages } from 'lucide-react';
+import { useUrduTranslation } from '@/hooks/useUrduTranslation';
 import { supabase } from '@/lib/supabase';
 
 const SUPABASE_URL      = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
@@ -53,6 +54,7 @@ const SunnahReminderModal = ({
   const [form, setForm] = useState<FormState>(EMPTY);
   const [uploadingImage, setUploadingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const { translateToUrdu, translating: translatingUrdu } = useUrduTranslation();
   const isEdit = !!row;
   const [existingGroups, setExistingGroups] = useState<string[]>([]);
   const [groupOrderMap, setGroupOrderMap] = useState<Record<string, number | null>>({});
@@ -212,7 +214,23 @@ const SunnahReminderModal = ({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="sr-urdu" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Urdu Translation</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="sr-urdu" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Urdu Translation</Label>
+              <button
+                type="button"
+                disabled={translatingUrdu}
+                onClick={async () => {
+                  const src = form.translation || form.transliteration || form.title;
+                  const result = await translateToUrdu(src);
+                  if (result) set('urdu_translation', result);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-[11px] font-semibold hover:bg-violet-50 disabled:opacity-50 transition-colors"
+                title="Auto-translate to Urdu using AI"
+              >
+                {translatingUrdu ? <Loader2 size={11} className="animate-spin" /> : <Languages size={11} />}
+                {translatingUrdu ? 'Translating…' : 'Auto-translate'}
+              </button>
+            </div>
             <Textarea id="sr-urdu" value={form.urdu_translation} onChange={(e) => set('urdu_translation', e.target.value)}
               placeholder="اردو ترجمہ یہاں لکھیں…" dir="rtl" className="min-h-[60px] text-sm text-right"
               style={{ fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2' }} />

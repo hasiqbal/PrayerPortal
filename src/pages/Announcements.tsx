@@ -302,6 +302,20 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [translatingUrdu, setTranslatingUrdu] = useState(false);
+
+  const handleTranslateUrdu = async () => {
+    const rawBody = form.body ? form.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : '';
+    const src = rawBody || form.title || '';
+    if (!src.trim()) { toast.error('No English text to translate.'); return; }
+    setTranslatingUrdu(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('translate-urdu', { body: { text: src } });
+      if (error || !(data as { urdu?: string })?.urdu) { toast.error('Translation failed.'); return; }
+      setForm((prev) => ({ ...prev, urdu_body: (data as { urdu: string }).urdu }));
+      toast.success('Urdu translation generated.');
+    } catch { toast.error('Translation error.'); } finally { setTranslatingUrdu(false); }
+  };
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const [lastItem, setLastItem] = useState(item);
@@ -365,7 +379,13 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
               <RichTextEditor content={form.body ?? ''} onChange={(html) => set('body', html)} />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sm font-medium">Urdu Description <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Urdu Description <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                <button type="button" disabled={translatingUrdu} onClick={handleTranslateUrdu}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-[11px] font-semibold hover:bg-violet-50 disabled:opacity-50 transition-colors">
+                  {translatingUrdu ? <><Loader2 size={11} className="animate-spin" /> Translating…</> : <>🌐 Auto-translate</>}
+                </button>
+              </div>
               <textarea
                 value={(form as typeof EMPTY_FORM).urdu_body ?? ''}
                 onChange={(e) => setForm((prev) => ({ ...prev, urdu_body: e.target.value }))}

@@ -148,6 +148,28 @@ function getCategoryMeta(value: string) {
   return CATEGORIES.find((c) => c.value === value) ?? CATEGORIES[2];
 }
 
+// ─── Urdu Auto-Translate Button ──────────────────────────────────────────────
+
+const UrduAutoTranslateBtn = ({ sourceText, onResult }: { sourceText: string; onResult: (v: string) => void }) => {
+  const [loading, setLoading] = useState(false);
+  const handleClick = async () => {
+    if (!sourceText.trim()) { toast.error('No English text to translate.'); return; }
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('translate-urdu', { body: { text: sourceText.trim() } });
+      if (error || !(data as { urdu?: string })?.urdu) { toast.error('Translation failed.'); return; }
+      onResult((data as { urdu: string }).urdu);
+      toast.success('Urdu translation generated.');
+    } catch { toast.error('Translation error.'); } finally { setLoading(false); }
+  };
+  return (
+    <button type="button" disabled={loading} onClick={handleClick}
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-[11px] font-semibold hover:bg-violet-50 disabled:opacity-50 transition-colors">
+      {loading ? <><RefreshCw size={11} className="animate-spin" /> Translating…</> : <>🌐 Auto-translate</>}
+    </button>
+  );
+};
+
 // ─── Image Gallery Modal ──────────────────────────────────────────────────────
 
 interface GalleryImage { name: string; url: string; path: string; }
@@ -559,7 +581,10 @@ const ComposePanel = ({
 
           {/* Urdu body */}
           <div className="space-y-1.5">
-            <Label htmlFor="notif-urdu-body" className="flex items-center gap-1.5">Urdu Message <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="notif-urdu-body" className="flex items-center gap-1.5">Urdu Message <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+              <UrduAutoTranslateBtn sourceText={form.body || form.title} onResult={(v) => set('urduBody', v)} />
+            </div>
             <Textarea
               id="notif-urdu-body"
               value={form.urduBody}

@@ -8,7 +8,8 @@ import { Switch } from '@/components/ui/switch';
 import { Dhikr, PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
 import { createDhikr, updateDhikr } from '@/lib/api';
 import { toast } from 'sonner';
-import { BookOpen, Loader2, ChevronDown, ChevronUp, CheckCircle2, X, ImagePlus, Trash2, ExternalLink, Copy } from 'lucide-react';
+import { BookOpen, Loader2, ChevronDown, ChevronUp, CheckCircle2, X, ImagePlus, Trash2, ExternalLink, Copy, Languages } from 'lucide-react';
+import { useUrduTranslation } from '@/hooks/useUrduTranslation';
 import { supabase } from '@/lib/supabase';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
@@ -271,6 +272,7 @@ type FormState = typeof EMPTY;
 const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onRevert, onUpdated }: DhikrModalProps) => {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const { translateToUrdu, translating: translatingUrdu } = useUrduTranslation();
   const [uploadingImage, setUploadingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const isEdit = !!row;
@@ -491,10 +493,27 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="urdu_translation" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Urdu Translation</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="urdu_translation" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Urdu Translation</Label>
+              <button
+                type="button"
+                disabled={translatingUrdu}
+                onClick={async () => {
+                  const src = form.translation || form.transliteration || form.title;
+                  const result = await translateToUrdu(src);
+                  if (result) set('urdu_translation', result);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-[11px] font-semibold hover:bg-violet-50 disabled:opacity-50 transition-colors"
+                title="Auto-translate English text to Urdu using AI"
+              >
+                {translatingUrdu ? <Loader2 size={11} className="animate-spin" /> : <Languages size={11} />}
+                {translatingUrdu ? 'Translating…' : 'Auto-translate'}
+              </button>
+            </div>
             <Textarea id="urdu_translation" value={form.urdu_translation} onChange={(e) => set('urdu_translation', e.target.value)}
               placeholder="اردو ترجمہ یہاں لکھیں…" dir="rtl" className="min-h-[60px] text-sm text-right"
               style={{ fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2' }} />
+            <p className="text-[10px] text-muted-foreground">Auto-translate uses the English translation, or title if unavailable.</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
