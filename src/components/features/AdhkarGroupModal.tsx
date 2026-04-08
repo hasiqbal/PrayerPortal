@@ -227,7 +227,22 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Name *</Label>
-              <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Wird al-Latif" />
+              <Input
+                value={form.name}
+                onChange={(e) => set('name', e.target.value)}
+                placeholder="e.g. Wird al-Latif"
+                list="adhkar-group-name-list"
+              />
+              <datalist id="adhkar-group-name-list">
+                {existingGroups
+                  .filter((g) => g.name !== originalName)
+                  .map((g) => <option key={g.id ?? g.name} value={g.name} />)}
+              </datalist>
+              {isEdit && existingGroups.some((g) => g.name === form.name && g.name !== originalName) && (
+                <p className="text-[11px] text-amber-600 font-medium mt-0.5">
+                  ⚠ This name already exists — saving will <strong>merge</strong> "{originalName}" into "{form.name}".
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Prayer Time</Label>

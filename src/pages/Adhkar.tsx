@@ -155,7 +155,7 @@ const SortableEntryRow = ({
 // ─── Sortable Group Section ───────────────────────────────────────────────────
 
 const SortableGroupSection = ({
-  groupName, groupMeta, items,
+  groupName, groupMeta, items, allGroups = [],
   onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry,
   onEditGroup, onRenameGroup, onDescriptionSave,
   onAddToGroup, onDeleteGroup, onDuplicateGroup,
@@ -163,6 +163,7 @@ const SortableGroupSection = ({
   onEntriesReordered, deleting, toggling, isDragOverlay,
 }: {
   groupName: string; groupMeta: AdhkarGroup | undefined; items: Dhikr[];
+  allGroups?: AdhkarGroup[];
   onClickRow: (d: Dhikr) => void; onEditEntry: (d: Dhikr) => void;
   onDeleteEntry: (d: Dhikr) => void; onToggleActive: (d: Dhikr) => void;
   onMoveEntry: (d: Dhikr) => void;
@@ -253,13 +254,30 @@ const SortableGroupSection = ({
                   onRenameGroup(groupName, newName, groupMeta);
                   setRenaming(false);
                 }}
-                className="flex gap-1.5" onClick={(e) => e.stopPropagation()}
+                className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}
               >
-                <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)}
-                  className="h-7 text-sm w-48 font-semibold" autoFocus
-                  onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(false); }} />
-                <button type="submit" className="px-2 h-7 rounded text-xs bg-primary text-primary-foreground font-medium">Save</button>
-                <button type="button" onClick={() => setRenaming(false)} className="px-2 h-7 rounded text-xs border border-input text-muted-foreground">✕</button>
+                <div className="flex gap-1.5">
+                  <div className="relative">
+                    <Input
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      className="h-7 text-sm w-52 font-semibold"
+                      autoFocus
+                      list={`rename-list-${groupName}`}
+                      onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(false); }}
+                    />
+                    <datalist id={`rename-list-${groupName}`}>
+                      {allGroups.filter((g) => g.name !== groupName).map((g) => (
+                        <option key={g.id ?? g.name} value={g.name} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <button type="submit" className="px-2 h-7 rounded text-xs bg-primary text-primary-foreground font-medium">Save</button>
+                  <button type="button" onClick={() => setRenaming(false)} className="px-2 h-7 rounded text-xs border border-input text-muted-foreground">✕</button>
+                </div>
+                {allGroups.some((g) => g.name === renameValue.trim() && g.name !== groupName) && (
+                  <p className="text-[10px] text-amber-600 font-medium px-0.5">⚠ Saving will merge into "{renameValue.trim()}"</p>
+                )}
               </form>
             ) : (
               <span
@@ -430,6 +448,7 @@ const SortableGroupSection = ({
 
 interface PrayerTimeSectionProps {
   cat: string; catItems: Dhikr[]; groupMap: Record<string, AdhkarGroup>;
+  allGroups: AdhkarGroup[];
   onClickRow: (d: Dhikr) => void; onEditEntry: (d: Dhikr) => void;
   onDeleteEntry: (d: Dhikr) => void; onToggleActive: (d: Dhikr) => void;
   onMoveEntry: (d: Dhikr) => void;
@@ -446,7 +465,7 @@ interface PrayerTimeSectionProps {
 }
 
 const PrayerTimeSection = ({
-  cat, catItems, groupMap,
+  cat, catItems, groupMap, allGroups,
   onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry,
   onEditGroup, onRenameGroup, onDescriptionSave,
   onAddToGroup, onDeleteGroup, onDuplicateGroup,
@@ -533,7 +552,7 @@ const PrayerTimeSection = ({
               {sortedGroupNames.map((groupName) => (
                 <SortableGroupSection
                   key={groupName} groupName={groupName} groupMeta={groupMap[groupName]}
-                  items={grouped[groupName] ?? []}
+                  items={grouped[groupName] ?? []} allGroups={allGroups}
                   onClickRow={onClickRow} onEditEntry={onEditEntry}
                   onDeleteEntry={onDeleteEntry} onToggleActive={onToggleActive}
                   onMoveEntry={onMoveEntry}
@@ -551,7 +570,7 @@ const PrayerTimeSection = ({
             {activeGroupName && grouped[activeGroupName] && (
               <SortableGroupSection
                 groupName={activeGroupName} groupMeta={groupMap[activeGroupName]}
-                items={grouped[activeGroupName]}
+                items={grouped[activeGroupName]} allGroups={[]}
                 onClickRow={() => {}} onEditEntry={() => {}} onDeleteEntry={() => {}} onToggleActive={() => {}}
                 onMoveEntry={() => {}}
                 onEditGroup={() => {}} onRenameGroup={() => {}} onDescriptionSave={() => {}}
@@ -981,6 +1000,13 @@ const Adhkar = () => {
   // ─── Inline rename ────────────────────────────────────────────────────────
   const handleRenameGroup = async (oldGroupName: string, newName: string, meta: AdhkarGroup | undefined) => {
     if (newName === oldGroupName) return;
+
+    // Merge detection: if target name already exists as another group, merge instead of rename
+    const targetGroup = groupsList.find((g) => g.name === newName && g.name !== oldGroupName);
+    if (targetGroup) {
+      await handleMergeInto(oldGroupName, targetGroup, meta?.id);
+      return;
+    }
     queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
       old.map((g) => (g.name === oldGroupName ? { ...g, name: newName } : g))
     );
@@ -1358,7 +1384,7 @@ const Adhkar = () => {
                 if (catItems.length === 0) return null;
                 return (
                   <PrayerTimeSection
-                    key={cat} cat={cat} catItems={catItems} groupMap={groupMap}
+                    key={cat} cat={cat} catItems={catItems} groupMap={groupMap} allGroups={groupsList}
                     onClickRow={handleOpenDetail} onEditEntry={handleEdit}
                     onDeleteEntry={handleDelete} onToggleActive={handleToggleActive}
                     onMoveEntry={handleOpenMove}
