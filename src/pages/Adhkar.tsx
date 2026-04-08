@@ -1083,45 +1083,27 @@ const Adhkar = () => {
   };
 
   // ─── Quick prayer-time reassignment from group header dropdown ────────────
+  // Updates the GROUP LABEL only — individual entry prayer times are NOT changed.
   const handleReassignPrayerTime = async (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined) => {
     const oldPrayerTime = meta?.prayer_time ?? '';
     if (newPrayerTime === oldPrayerTime) return;
 
-    // Update group record
+    // Update group record only
     if (meta?.id) {
       try {
         await updateAdhkarGroup(meta.id, { prayer_time: newPrayerTime });
       } catch (err) {
-        toast.error(`Failed to reassign: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        toast.error(`Failed to update group label: ${err instanceof Error ? err.message : 'Unknown error'}`);
         return;
       }
     }
 
-    // Update group cache
+    // Update group cache only — entries keep their own individual prayer_time
     queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
       old.map((g) => (g.name === groupName ? { ...g, prayer_time: newPrayerTime } : g))
     );
 
-    // Optimistic: cascade prayer_time to all entries in the group
-    const currentEntries = queryClient.getQueryData<Dhikr[]>(['adhkar']) ?? [];
-    const affected = currentEntries.filter((d) => d.group_name === groupName);
-
-    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
-      old.map((d) => (d.group_name === groupName ? { ...d, prayer_time: newPrayerTime } : d))
-    );
-
-    if (affected.length > 0) {
-      Promise.all(
-        affected.map((d) =>
-          updateDhikr(d.id, { prayer_time: newPrayerTime })
-            .catch((err) => console.warn(`[Adhkar] Failed to update prayer_time for ${d.id}:`, err))
-        )
-      ).then(() => {
-        toast.success(`"${groupName}" moved to ${PRAYER_TIME_LABELS[newPrayerTime] ?? newPrayerTime}.`);
-      });
-    } else {
-      toast.success(`"${groupName}" moved to ${PRAYER_TIME_LABELS[newPrayerTime] ?? newPrayerTime}.`);
-    }
+    toast.success(`Group label updated to ${PRAYER_TIME_LABELS[newPrayerTime] ?? newPrayerTime}. Entry prayer times unchanged.`);
   };
 
   // ─── Merge groups ─────────────────────────────────────────────────────────
@@ -1134,11 +1116,11 @@ const Adhkar = () => {
     );
     if (!confirmed) return;
 
-    // Optimistic update
+    // Optimistic update — keep each entry's own prayer_time; only change group_name
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
       old.map((d) =>
         d.group_name === sourceGroupName
-          ? { ...d, group_name: targetGroup.name, prayer_time: targetGroup.prayer_time ?? d.prayer_time }
+          ? { ...d, group_name: targetGroup.name }
           : d
       )
     );
@@ -1153,7 +1135,7 @@ const Adhkar = () => {
         affected.map((d) =>
           updateDhikr(d.id, {
             group_name: targetGroup.name,
-            prayer_time: targetGroup.prayer_time ?? d.prayer_time,
+            // entries keep their own prayer_time
           })
         )
       );
@@ -1178,40 +1160,21 @@ const Adhkar = () => {
     }
   };
 
-  const handleGroupSaved = (saved: AdhkarGroup, oldName?: string, oldPrayerTime?: string) => {
+  const handleGroupSaved = (saved: AdhkarGroup, oldName?: string, _oldPrayerTime?: string) => {
     queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => {
       const exists = old.some((g) => g.id === saved.id);
       return exists ? old.map((g) => (g.id === saved.id ? saved : g)) : [...old, saved];
     });
     const resolvedOldName = oldName ?? saved.name;
     const nameChanged = !!oldName && oldName !== saved.name;
-    const timeChanged = !!oldPrayerTime && oldPrayerTime !== saved.prayer_time;
-    if (nameChanged || timeChanged) {
+    // Only cascade group_name rename to entries — never cascade prayer_time changes
+    if (nameChanged) {
       queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
         old.map((d) => {
           if (d.group_name !== resolvedOldName) return d;
-          return {
-            ...d,
-            ...(nameChanged ? { group_name: saved.name } : {}),
-            ...(timeChanged && saved.prayer_time ? { prayer_time: saved.prayer_time } : {}),
-          };
+          return { ...d, group_name: saved.name };
         })
       );
-
-      if (timeChanged && saved.prayer_time) {
-        const currentEntries = queryClient.getQueryData<Dhikr[]>(['adhkar']) ?? [];
-        const affected = currentEntries.filter((d) => d.group_name === saved.name);
-        if (affected.length > 0) {
-          Promise.all(
-            affected.map((d) =>
-              updateDhikr(d.id, { prayer_time: saved.prayer_time! })
-                .catch((err) => console.warn(`[Adhkar] Failed to update prayer_time for ${d.id}:`, err))
-            )
-          ).then(() => {
-            toast.success(`Moved ${affected.length} entr${affected.length !== 1 ? 'ies' : 'y'} to ${PRAYER_TIME_LABELS[saved.prayer_time!] ?? saved.prayer_time}.`);
-          });
-        }
-      }
     }
     setGroupModalOpen(false);
     setEditGroup(null);
@@ -1338,6 +1301,21 @@ const Adhkar = () => {
 
   const missingDescCount = allGroupRows.filter((r) => !(r.meta?.description ?? r.description)).length;
 
+  // ─── Orphan groups (in adhkar_groups but have no entries) ────────────────
+  const orphanGroups = useMemo(() => {
+    const usedNames = new Set(adhkar.map((d) => d.group_name).filter(Boolean));
+    return groupsList.filter((g) => !usedNames.has(g.name));
+  }, [groupsList, adhkar]);
+
+  const handleDeleteOrphanGroup = async (g: AdhkarGroup) => {
+    if (!confirm(`Delete empty group "${g.name}"?\n\nThis group has no entries. It will be permanently removed.`)) return;
+    queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => old.filter((x) => x.id !== g.id));
+    if (g.id) {
+      import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(g.id)).catch(() => {});
+    }
+    toast.success(`Group "${g.name}" deleted.`);
+  };
+
   return (
     <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
       <Sidebar />
@@ -1414,6 +1392,36 @@ const Adhkar = () => {
               })}
             </div>
           </div>
+
+          {/* Orphan groups panel */}
+          {orphanGroups.length > 0 && (
+            <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <div className="flex items-center gap-2 mb-2.5">
+                <span className="text-xs font-semibold text-amber-800">⚠ Empty Groups ({orphanGroups.length})</span>
+                <span className="text-xs text-amber-600">— exist in the database but have no entries assigned</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {orphanGroups.map((g) => (
+                  <div key={g.id ?? g.name} className="flex items-center gap-1.5 bg-white border border-amber-200 rounded-lg px-2.5 py-1.5 shadow-sm">
+                    <div className="w-6 h-6 rounded-md flex items-center justify-center text-sm shrink-0" style={{ background: g.icon_bg_color ?? '#6366f1' }}>
+                      {g.icon ?? '📋'}
+                    </div>
+                    <span className="text-xs font-medium text-foreground">{g.name}</span>
+                    {g.prayer_time && (
+                      <span className="text-[10px] text-muted-foreground">· {PRAYER_TIME_LABELS[g.prayer_time] ?? g.prayer_time}</span>
+                    )}
+                    <button
+                      onClick={() => handleDeleteOrphanGroup(g)}
+                      className="ml-1 p-0.5 rounded hover:bg-red-100 transition-colors"
+                      title={`Delete "${g.name}"`}
+                    >
+                      <Trash2 size={11} className="text-destructive" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Content */}
           {filtered.length === 0 ? (
