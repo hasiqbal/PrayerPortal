@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,9 +55,28 @@ type FormState = typeof EMPTY;
 const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, onMergeInto }: AdhkarGroupModalProps) => {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [nameDropOpen, setNameDropOpen] = useState(false);
+  const [nameSearch, setNameSearch] = useState('');
+  const nameDropRef = useRef<HTMLDivElement>(null);
+
+  // Close name dropdown on outside click
+  useEffect(() => {
+    if (!nameDropOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (nameDropRef.current && !nameDropRef.current.contains(e.target as Node)) {
+        setNameDropOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [nameDropOpen]);
+
+
   const isEdit = !!group?.id || !!group?.name;
   const originalName = group?.name ?? '';
   const originalPrayerTime = group?.prayer_time ?? '';
+  const mergeTargets = existingGroups.filter((g) => g.name !== originalName);
+
   // When launched from App View with only a name (no real id), treat as create
 
   // Use a ref to track the last group id/name we initialized for, so reference
@@ -90,8 +109,8 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
     }
   }, [group, open]);
 
-  const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
-    setForm((p) => ({ ...p, [key]: val }));
+  const set = useCallback(<K extends keyof FormState>(key: K, val: FormState[K]) =>
+    setForm((p) => ({ ...p, [key]: val })), []);
 
   const handleSave = async () => {
     if (!form.name.trim()) { toast.error('Group name is required.'); return; }
@@ -227,17 +246,60 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Name *</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => set('name', e.target.value)}
-                placeholder="e.g. Wird al-Latif"
-                list="adhkar-group-name-list"
-              />
-              <datalist id="adhkar-group-name-list">
-                {existingGroups
-                  .filter((g) => g.name !== originalName)
-                  .map((g) => <option key={g.id ?? g.name} value={g.name} />)}
-              </datalist>
+              {/* Custom combobox — shows ALL groups unfiltered */}
+              <div className="relative" ref={nameDropRef}>
+                <div className="flex gap-1">
+                  <Input
+                    value={form.name}
+                    onChange={(e) => { set('name', e.target.value); setNameSearch(e.target.value); }}
+                    onFocus={() => setNameDropOpen(true)}
+                    placeholder="e.g. Wird al-Latif"
+                    className="flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setNameSearch(''); setNameDropOpen((v) => !v); }}
+                    className="px-2 rounded-md border border-input bg-background hover:bg-secondary transition-colors text-muted-foreground text-xs"
+                    title="Browse existing groups"
+                  >
+                    ▾
+                  </button>
+                </div>
+                {nameDropOpen && mergeTargets.length > 0 && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                    <div className="px-2 py-1.5 border-b border-border bg-muted/40">
+                      <input
+                        type="text"
+                        value={nameSearch}
+                        onChange={(e) => setNameSearch(e.target.value)}
+                        placeholder="Search groups…"
+                        className="w-full text-xs px-2 py-1 rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                        autoFocus
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                    {mergeTargets
+                      .filter((g) => !nameSearch || g.name.toLowerCase().includes(nameSearch.toLowerCase()))
+                      .map((g) => (
+                        <button
+                          key={g.id ?? g.name}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-secondary/60 flex items-center gap-2 transition-colors"
+                          onClick={() => { set('name', g.name); setNameDropOpen(false); setNameSearch(''); }}
+                        >
+                          <span className="text-base">{g.icon ?? '📋'}</span>
+                          <span className="font-medium text-foreground">{g.name}</span>
+                          {g.prayer_time && (
+                            <span className="ml-auto text-[10px] text-muted-foreground shrink-0">{PRAYER_TIME_LABELS[g.prayer_time] ?? g.prayer_time}</span>
+                          )}
+                        </button>
+                      ))}
+                    {mergeTargets.filter((g) => !nameSearch || g.name.toLowerCase().includes(nameSearch.toLowerCase())).length === 0 && (
+                      <p className="px-3 py-2.5 text-xs text-muted-foreground text-center">No groups match</p>
+                    )}
+                  </div>
+                )}
+              </div>
               {isEdit && existingGroups.some((g) => g.name === form.name && g.name !== originalName) && (
                 <p className="text-[11px] text-amber-600 font-medium mt-0.5">
                   ⚠ This name already exists — saving will <strong>merge</strong> "{originalName}" into "{form.name}".

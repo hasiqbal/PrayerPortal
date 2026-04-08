@@ -182,6 +182,9 @@ const SortableGroupSection = ({
   const [entryDragActiveId, setEntryDragActiveId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+  const [renameDropOpen, setRenameDropOpen] = useState(false);
+  const [renameSearch, setRenameSearch] = useState('');
+  const renameDropRef = useRef<HTMLDivElement>(null);
   const [descEditing, setDescEditing] = useState(false);
   const [descValue, setDescValue] = useState('');
   const [descSaving, setDescSaving] = useState(false);
@@ -219,6 +222,11 @@ const SortableGroupSection = ({
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
       className={`rounded-xl border border-border overflow-hidden shadow-sm ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
     >
+      {/* Close rename dropdown on outside click */}
+      {renameDropOpen && (
+        <div className="fixed inset-0 z-30" onClick={() => setRenameDropOpen(false)} />
+      )}
+
       {/* ── Group Header ── */}
       <div className="flex items-center gap-2.5 px-3 py-2.5 select-none" style={{ background: 'hsl(var(--card))' }}>
 
@@ -253,27 +261,63 @@ const SortableGroupSection = ({
                   const newName = renameValue.trim() || groupName;
                   onRenameGroup(groupName, newName, groupMeta);
                   setRenaming(false);
+                  setRenameDropOpen(false);
                 }}
                 className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex gap-1.5">
+                <div className="flex gap-1.5 relative z-40" ref={renameDropRef}>
                   <div className="relative">
                     <Input
                       value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      className="h-7 text-sm w-52 font-semibold"
+                      onChange={(e) => { setRenameValue(e.target.value); setRenameSearch(e.target.value); }}
+                      onFocus={() => setRenameDropOpen(true)}
+                      className="h-7 text-sm w-44 font-semibold"
                       autoFocus
-                      list={`rename-list-${groupName}`}
-                      onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(false); }}
+                      onKeyDown={(e) => { if (e.key === 'Escape') { setRenaming(false); setRenameDropOpen(false); } }}
                     />
-                    <datalist id={`rename-list-${groupName}`}>
-                      {allGroups.filter((g) => g.name !== groupName).map((g) => (
-                        <option key={g.id ?? g.name} value={g.name} />
-                      ))}
-                    </datalist>
+                    {/* Custom dropdown — shows ALL groups unfiltered */}
+                    {renameDropOpen && allGroups.filter((g) => g.name !== groupName).length > 0 && (
+                      <div className="absolute z-50 top-full left-0 mt-1 w-64 bg-popover border border-border rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                        <div className="px-2 py-1 border-b border-border bg-muted/40 sticky top-0">
+                          <input
+                            type="text"
+                            value={renameSearch}
+                            onChange={(e) => setRenameSearch(e.target.value)}
+                            placeholder="Search groups…"
+                            className="w-full text-xs px-2 py-1 rounded border border-input bg-background focus:outline-none"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                        {allGroups
+                          .filter((g) => g.name !== groupName && (!renameSearch || g.name.toLowerCase().includes(renameSearch.toLowerCase())))
+                          .map((g) => (
+                            <button
+                              key={g.id ?? g.name}
+                              type="button"
+                              className="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary/60 flex items-center gap-2 transition-colors"
+                              onClick={() => { setRenameValue(g.name); setRenameDropOpen(false); }}
+                            >
+                              <span>{g.icon ?? '📋'}</span>
+                              <span className="font-medium flex-1 truncate">{g.name}</span>
+                              {g.prayer_time && (
+                                <span className="text-[10px] text-muted-foreground shrink-0">{PRAYER_TIME_LABELS[g.prayer_time] ?? g.prayer_time}</span>
+                              )}
+                            </button>
+                          ))}
+                        {allGroups.filter((g) => g.name !== groupName && (!renameSearch || g.name.toLowerCase().includes(renameSearch.toLowerCase()))).length === 0 && (
+                          <p className="px-3 py-2 text-xs text-muted-foreground text-center">No groups match</p>
+                        )}
+                      </div>
+                    )}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => { setRenameSearch(''); setRenameDropOpen((v) => !v); }}
+                    className="px-1.5 h-7 rounded text-xs border border-input bg-background hover:bg-secondary text-muted-foreground"
+                    title="Browse all groups"
+                  >▾</button>
                   <button type="submit" className="px-2 h-7 rounded text-xs bg-primary text-primary-foreground font-medium">Save</button>
-                  <button type="button" onClick={() => setRenaming(false)} className="px-2 h-7 rounded text-xs border border-input text-muted-foreground">✕</button>
+                  <button type="button" onClick={() => { setRenaming(false); setRenameDropOpen(false); }} className="px-2 h-7 rounded text-xs border border-input text-muted-foreground">✕</button>
                 </div>
                 {allGroups.some((g) => g.name === renameValue.trim() && g.name !== groupName) && (
                   <p className="text-[10px] text-amber-600 font-medium px-0.5">⚠ Saving will merge into "{renameValue.trim()}"</p>
