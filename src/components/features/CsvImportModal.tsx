@@ -7,7 +7,6 @@ import { PrayerTime, PrayerTimeUpdate } from '@/types';
 import { bulkUpdatePrayerTimesFromCsv, bulkUpdatePrayerTimesFromYearCsv, fetchPrayerTimes } from '@/lib/api';
 import { toast } from 'sonner';
 import { Upload, AlertCircle, CheckCircle2, Loader2, Download, AlertTriangle, ArrowLeft, ClipboardPaste, FileUp, ArrowRight, Info } from 'lucide-react';
-import { activityLogger } from '@/services/activityLogService';
 
 // ─── CSV columns — matching user's CSV column order ───────────────────────────
 const CSV_COLUMNS: (keyof PrayerTimeUpdate)[] = [
@@ -482,10 +481,6 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
         setStage('done');
         setProgress('');
         toast.success(`${validRows.length} row${validRows.length !== 1 ? 's' : ''} imported across ${resultMap.size} month${resultMap.size !== 1 ? 's' : ''} for ${year}.`);
-        activityLogger.log('prayer_times_csv_imported', 'prayer_times', {
-          entityLabel: `${validRows.length} rows across ${resultMap.size} months (${year})`,
-          details: { rows: validRows.length, months: monthsAffected, year },
-        });
         onImported(resultMap);
       } catch (err) {
         console.error('CSV year import error:', err);
