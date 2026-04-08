@@ -173,7 +173,8 @@ const SortableGroupSection = ({
   onAddToGroup: (groupName: string, prayerTime: string) => void;
   onDeleteGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onDuplicateGroup: (groupName: string, items: Dhikr[], meta: AdhkarGroup | undefined) => void;
-  onReassignPrayerTime: (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined) => void;
+  onReassignPrayerTime: (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined, fromPrayerTime: string) => void;
+  sectionPrayerTime: string;
   onEntriesReordered: (reorderedItems: Dhikr[]) => void;
   deleting: string | null; toggling: string | null; isDragOverlay?: boolean;
 }) => {
@@ -196,7 +197,8 @@ const SortableGroupSection = ({
   const badgeColor = groupMeta?.badge_color ?? '#6366f1';
   const description = groupMeta?.description ?? items[0]?.description ?? null;
   const isUngrouped = groupName === '(Ungrouped)';
-  const currentPrayerTime = groupMeta?.prayer_time ?? items[0]?.prayer_time ?? 'after-fajr';
+  // Use the actual section prayer time, NOT group metadata — group can span multiple sections
+  const currentPrayerTime = sectionPrayerTime;
   const entryDragActiveItem = entryDragActiveId ? items.find((d) => d.id === entryDragActiveId) : null;
 
   const handleEntryDragEnd = async (event: DragEndEvent) => {
@@ -393,7 +395,7 @@ const SortableGroupSection = ({
           {!isUngrouped && (
             <select
               value={currentPrayerTime}
-              onChange={(e) => onReassignPrayerTime(groupName, e.target.value, groupMeta)}
+              onChange={(e) => onReassignPrayerTime(groupName, e.target.value, groupMeta, sectionPrayerTime)}
               className="h-7 rounded-md border border-input bg-background px-2 text-[11px] font-medium text-foreground ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer max-w-[140px]"
               title="Move group to a different prayer time"
             >
@@ -502,7 +504,7 @@ interface PrayerTimeSectionProps {
   onAddToGroup: (groupName: string, prayerTime: string) => void;
   onDeleteGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onDuplicateGroup: (groupName: string, items: Dhikr[], meta: AdhkarGroup | undefined) => void;
-  onReassignPrayerTime: (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined) => void;
+  onReassignPrayerTime: (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined, fromPrayerTime: string) => void;
   onGroupsReordered: (cat: string, newOrder: string[]) => void;
   onEntriesReordered: (groupName: string, reorderedItems: Dhikr[]) => void;
   deleting: string | null; toggling: string | null;
@@ -595,8 +597,9 @@ const PrayerTimeSection = ({
             <div className="space-y-2.5">
               {sortedGroupNames.map((groupName) => (
                 <SortableGroupSection
-                  key={groupName} groupName={groupName} groupMeta={groupMap[groupName]}
+                  key={`${cat}-${groupName}`} groupName={groupName} groupMeta={groupMap[groupName]}
                   items={grouped[groupName] ?? []} allGroups={allGroups}
+                  sectionPrayerTime={cat}
                   onClickRow={onClickRow} onEditEntry={onEditEntry}
                   onDeleteEntry={onDeleteEntry} onToggleActive={onToggleActive}
                   onMoveEntry={onMoveEntry}
@@ -615,6 +618,7 @@ const PrayerTimeSection = ({
               <SortableGroupSection
                 groupName={activeGroupName} groupMeta={groupMap[activeGroupName]}
                 items={grouped[activeGroupName]} allGroups={[]}
+                sectionPrayerTime={cat}
                 onClickRow={() => {}} onEditEntry={() => {}} onDeleteEntry={() => {}} onToggleActive={() => {}}
                 onMoveEntry={() => {}}
                 onEditGroup={() => {}} onRenameGroup={() => {}} onDescriptionSave={() => {}}
@@ -1118,39 +1122,55 @@ const Adhkar = () => {
   };
 
   // ─── Quick prayer-time reassignment from group header dropdown ────────────
-  // Updates the group record AND cascades to all entries so they move sections.
-  const handleReassignPrayerTime = async (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined) => {
-    const oldPrayerTime = meta?.prayer_time ?? '';
-    if (newPrayerTime === oldPrayerTime) return;
+  // Only moves entries that are in the SPECIFIC section (fromPrayerTime) —
+  // so "Quran (After Fajr)" and "Quran (After Isha)" are treated independently.
+  const handleReassignPrayerTime = async (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined, fromPrayerTime: string) => {
+    if (newPrayerTime === fromPrayerTime) return;
 
     const currentEntries = queryClient.getQueryData<Dhikr[]>(['adhkar']) ?? [];
-    const affected = currentEntries.filter((d) => d.group_name === groupName);
+    // Only affect entries in THIS section — not other sections that share the group name
+    const affected = currentEntries.filter(
+      (d) => d.group_name === groupName && d.prayer_time === fromPrayerTime
+    );
 
-    // Optimistic update — move group + all its entries to new section
-    queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
-      old.map((g) => (g.name === groupName ? { ...g, prayer_time: newPrayerTime } : g))
-    );
+    // Optimistic update — only move entries from this section
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
-      old.map((d) => d.group_name === groupName ? { ...d, prayer_time: newPrayerTime } : d)
+      old.map((d) =>
+        d.group_name === groupName && d.prayer_time === fromPrayerTime
+          ? { ...d, prayer_time: newPrayerTime }
+          : d
+      )
     );
+
+    // Only update group metadata if this is the only section (group not spanning multiple times)
+    const allGroupEntries = currentEntries.filter((d) => d.group_name === groupName);
+    const otherSections = allGroupEntries.filter((d) => d.prayer_time !== fromPrayerTime);
+    const groupSpansMultipleSections = otherSections.length > 0;
 
     try {
       const promises: Promise<unknown>[] = [];
-      if (meta?.id) {
+      if (meta?.id && !groupSpansMultipleSections) {
+        // Only update group metadata if the group is not spanning multiple sections
         promises.push(updateAdhkarGroup(meta.id, { prayer_time: newPrayerTime }));
+        queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
+          old.map((g) => (g.name === groupName ? { ...g, prayer_time: newPrayerTime } : g))
+        );
       }
       promises.push(
         ...affected.map((d) => updateDhikr(d.id, { prayer_time: newPrayerTime }))
       );
       await Promise.all(promises);
-      toast.success(`"${groupName}" moved to ${PRAYER_TIME_LABELS[newPrayerTime] ?? newPrayerTime} (${affected.length} entr${affected.length !== 1 ? 'ies' : 'y'} updated).`);
+      const fromLabel = PRAYER_TIME_LABELS[fromPrayerTime] ?? fromPrayerTime;
+      const toLabel = PRAYER_TIME_LABELS[newPrayerTime] ?? newPrayerTime;
+      toast.success(`Moved ${affected.length} entr${affected.length !== 1 ? 'ies' : 'y'} of "${groupName}" from ${fromLabel} → ${toLabel}.`);
     } catch (err) {
       // Rollback
-      queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
-        old.map((g) => (g.name === groupName ? { ...g, prayer_time: oldPrayerTime } : g))
-      );
       queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
-        old.map((d) => d.group_name === groupName ? { ...d, prayer_time: oldPrayerTime } : d)
+        old.map((d) =>
+          d.group_name === groupName && d.prayer_time === newPrayerTime && affected.some((a) => a.id === d.id)
+            ? { ...d, prayer_time: fromPrayerTime }
+            : d
+        )
       );
       toast.error(`Failed to reassign prayer time: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
@@ -1502,7 +1522,7 @@ const Adhkar = () => {
                     }}
                     onRenameGroup={handleRenameGroup}
                     onDescriptionSave={handleDescriptionSave}
-                    onReassignPrayerTime={handleReassignPrayerTime}
+                    onReassignPrayerTime={handleReassignPrayerTime as (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined, fromPrayerTime: string) => void}
                     onDeleteGroup={async (name, meta) => {
                       const groupEntries = adhkar.filter((d) => d.group_name === name);
                       const entryCount = groupEntries.length;
