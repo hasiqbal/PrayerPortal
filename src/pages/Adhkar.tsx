@@ -17,7 +17,7 @@ import AdhkarGroupModal from '@/components/features/AdhkarGroupModal';
 import {
   fetchAdhkar, deleteDhikr, fetchAdhkarGroups, createAdhkarGroup, createDhikr, updateDhikr, updateAdhkarGroup,
 } from '@/lib/api';
-import { supabase } from '@/lib/supabase';
+import { supabase, invokeExternalFunction } from '@/lib/supabase';
 import { Dhikr, AdhkarGroup, PRAYER_TIME_CATEGORIES, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
 import { toast } from 'sonner';
 import {
@@ -708,10 +708,10 @@ const Adhkar = () => {
     const existingGroupNames = new Set(adhkar.map((d) => d.group_name).filter(Boolean));
     const toSeed = knownDescriptions.filter((g) => existingGroupNames.has(g.groupName));
     if (toSeed.length === 0) return;
-    supabase.functions
-      .invoke('sync-group', { body: { seedDescriptions: toSeed } })
-      .then((res) => {
-        const results = (res.data as Record<string, unknown>)?.results as Array<{ group: string; cascaded: number; skipped: boolean }> | undefined;
+    invokeExternalFunction<{ results?: Array<{ group: string; cascaded: number; skipped: boolean }> }>('sync-group', { seedDescriptions: toSeed })
+      .then(({ data, error }) => {
+        if (error) { console.warn('[Adhkar] Description seed (non-critical):', error); return; }
+        const results = data?.results;
         if (!results) return;
         const seeded = results.filter((r) => !r.skipped && r.cascaded > 0);
         if (seeded.length > 0) {
@@ -724,8 +724,7 @@ const Adhkar = () => {
             })
           );
         }
-      })
-      .catch((e) => console.warn('[Adhkar] Description seed (non-critical):', e));
+      });
   }, [adhkar.length]);
 
   const groupMap = useMemo(() => {
@@ -1088,12 +1087,12 @@ const Adhkar = () => {
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
       old.map((d) => (d.group_name === groupName ? { ...d, description } : d))
     );
-    const cascadePromise = supabase.functions.invoke('sync-group', {
-      body: { groupName, payload: { description }, descriptionOnly: true },
-    }).then((res) => {
-      const count = (res.data as Record<string, unknown>)?.descriptionCascaded;
-      if (typeof count === 'number') console.log(`[Adhkar] Cascaded description to ${count} entries.`);
-    }).catch((e) => console.warn('[Adhkar] Description sync (non-critical):', e));
+    const cascadePromise = invokeExternalFunction<Record<string, unknown>>('sync-group', { groupName, payload: { description }, descriptionOnly: true })
+      .then(({ data, error }) => {
+        if (error) { console.warn('[Adhkar] Description sync (non-critical):', error); return; }
+        const count = data?.descriptionCascaded;
+        if (typeof count === 'number') console.log(`[Adhkar] Cascaded description to ${count} entries.`);
+      });
 
     if (meta?.id) {
       try {
@@ -1141,13 +1140,13 @@ const Adhkar = () => {
     if (meta?.id) {
       try {
         await updateAdhkarGroup(meta.id, { name: newName });
-        supabase.functions.invoke('sync-group', {
-          body: { groupName: newName, payload: { name: newName }, oldGroupName },
-        }).then((res) => {
-          const cascaded = (res.data as Record<string, unknown>)?.cascadedEntries;
-          if (typeof cascaded === 'number' && cascaded > 0)
-            console.log(`[Adhkar] Cascaded ${cascaded} entries on external backend.`);
-        }).catch((e) => console.warn('[Adhkar] Rename sync (non-critical):', e));
+        invokeExternalFunction<Record<string, unknown>>('sync-group', { groupName: newName, payload: { name: newName }, oldGroupName })
+          .then(({ data, error }) => {
+            if (error) { console.warn('[Adhkar] Rename sync (non-critical):', error); return; }
+            const cascaded = data?.cascadedEntries;
+            if (typeof cascaded === 'number' && cascaded > 0)
+              console.log(`[Adhkar] Cascaded ${cascaded} entries on external backend.`);
+          });
         toast.success(`Group renamed to "${newName}".`);
       } catch (err) {
         queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
@@ -1388,11 +1387,11 @@ const Adhkar = () => {
     setAiGenerating(true);
     toast(`Generating descriptions for ${groupsToGenerate.length} group${groupsToGenerate.length !== 1 ? 's' : ''}…`);
     try {
-      const { data, error } = await supabase.functions.invoke('generate-group-desc', {
-        body: { groups: groupsToGenerate.map((r) => ({ name: r.name, prayerTime: r.prayerTime, entryCount: r.entryCount })) },
+      const { data, error } = await invokeExternalFunction<{ results?: { name: string; description: string; error?: string }[] }>('generate-group-desc', {
+        groups: groupsToGenerate.map((r) => ({ name: r.name, prayerTime: r.prayerTime, entryCount: r.entryCount })),
       });
-      if (error) throw new Error(error.message);
-      const results = (data as { results?: { name: string; description: string; error?: string }[] })?.results ?? [];
+      if (error) throw new Error(error);
+      const results = data?.results ?? [];
       const succeeded = results.filter((r) => !r.error && r.description);
       const failed = results.filter((r) => r.error || !r.description);
       if (succeeded.length > 0) {
@@ -1432,7 +1431,7 @@ const Adhkar = () => {
     <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
       <Sidebar />
 
-      <main className="flex-1 overflow-x-auto pt-14 md:pt-0">
+      <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
         {/* ── Page Banner ── */}
         <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

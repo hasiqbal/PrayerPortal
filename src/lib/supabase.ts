@@ -16,3 +16,36 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
+
+/**
+ * Invoke an edge function on the EXTERNAL Supabase instance (lhaqqqatdztuijgdfdcf).
+ * This is needed because supabase.functions.invoke() routes to OnSpace Cloud,
+ * not to the external Supabase project where our edge functions actually live.
+ */
+export async function invokeExternalFunction<T = unknown>(
+  functionName: string,
+  body: unknown,
+): Promise<{ data: T | null; error: string | null }> {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/functions/v1/${functionName}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText);
+      return { data: null, error: `[${res.status}] ${text}` };
+    }
+    const data = await res.json() as T;
+    return { data, error: null };
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}

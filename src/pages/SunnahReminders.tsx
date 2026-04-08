@@ -635,7 +635,7 @@ const SunnahReminders = () => {
   return (
     <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
       <Sidebar />
-      <main className="flex-1 overflow-x-auto pt-14 md:pt-0">
+      <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
         {/* Banner */}
         <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

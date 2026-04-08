@@ -354,42 +354,48 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
   });
 
   // ── Save as New Copy: creates a new entry, original stays intact ──────────
-  const handleSaveAsCopy = () => {
+  const handleSaveAsCopy = async () => {
     if (!form.title.trim()) { toast.error('Title is required.'); return; }
+    setSaving(true);
     const payload = buildPayload();
     const tempId = `temp-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
     const optimistic: Dhikr = { id: tempId, ...payload, created_at: now, updated_at: now };
     onSaved(optimistic);
-    createDhikr(payload)
-      .then((real) => {
-        onFinalized?.(tempId, real);
-        toast.success(isEdit ? 'Saved as new entry — original preserved.' : 'Dhikr added.');
-      })
-      .catch((err: unknown) => {
-        onRevert?.(tempId);
-        const msg = err instanceof Error ? err.message : 'Unknown error';
-        toast.error(`Failed to save: ${msg}`);
-      });
+    onClose();
+    try {
+      const real = await createDhikr(payload);
+      onFinalized?.(tempId, real);
+      toast.success(isEdit ? 'Saved as new entry.' : 'Dhikr added.');
+    } catch (err: unknown) {
+      onRevert?.(tempId);
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to save: ${msg}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ── Save Changes: updates the existing entry in-place ────────────────────
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
     if (!row?.id) return;
     if (!form.title.trim()) { toast.error('Title is required.'); return; }
+    setSaving(true);
     const payload = buildPayload();
-    // Optimistic update
     const optimistic: Dhikr = { ...row, ...payload, updated_at: new Date().toISOString() };
     onUpdated?.(optimistic);
-    updateDhikr(row.id, payload)
-      .then((real) => {
-        onUpdated?.(real);
-        toast.success('Changes saved.');
-      })
-      .catch(() => {
-        onUpdated?.(row); // revert to original
-        toast.error('Failed to save changes.');
-      });
+    onClose();
+    try {
+      const real = await updateDhikr(row.id, payload);
+      onUpdated?.(real);
+      toast.success('Changes saved.');
+    } catch (err: unknown) {
+      onUpdated?.(row);
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to save changes: ${msg}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -614,14 +620,14 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
           {isEdit && (
             <Button
               variant="outline"
-              onClick={() => { handleSaveAsCopy(); onClose(); }}
+              onClick={handleSaveAsCopy}
               className="gap-1.5 border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]"
             >
               <Copy size={13} /> Save as New Copy
             </Button>
           )}
           <Button
-            onClick={() => { isEdit ? handleSaveChanges() : handleSaveAsCopy(); onClose(); }}
+            onClick={() => { isEdit ? handleSaveChanges() : handleSaveAsCopy(); }}
             style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
           >
             {isEdit ? 'Save Changes' : 'Add Dhikr'}
