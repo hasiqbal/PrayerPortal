@@ -7,6 +7,7 @@ import { PrayerTime, PrayerTimeUpdate } from '@/types';
 import { bulkUpdatePrayerTimesFromCsv, bulkUpdatePrayerTimesFromYearCsv, fetchPrayerTimes } from '@/lib/api';
 import { toast } from 'sonner';
 import { Upload, AlertCircle, CheckCircle2, Loader2, Download, AlertTriangle, ArrowLeft, ClipboardPaste, FileUp, ArrowRight, Info } from 'lucide-react';
+import { activityLogger } from '@/services/activityLogService';
 
 // ─── CSV columns — matching user's CSV column order ───────────────────────────
 const CSV_COLUMNS: (keyof PrayerTimeUpdate)[] = [
@@ -23,6 +24,9 @@ const MONTHS_FULL = [
 const MONTH_ABBR_MAP: Record<string, number> = {
   jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
   jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+  // Full month names
+  january: 1, february: 2, march: 3, april: 4, may2: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
 };
 
 function normaliseHeader(raw: string): keyof PrayerTimeUpdate | 'date' | 'month' | null {
@@ -52,10 +56,88 @@ function normaliseHeader(raw: string): keyof PrayerTimeUpdate | 'date' | 'month'
   return ALIASES[s] ?? null;
 }
 
-/** Returns true if a cell value looks like a date (01-Jan, 01/Feb, or plain day 1–31) */
+/** Returns true if a cell value looks like a date (01-Jan, 01/Feb, DD/MM/YYYY, DD-MM, or plain day 1–31) */
 function looksLikeDate(cell: string): boolean {
   const s = cell.trim();
-  return /^\d{1,2}[-/]\w+$/.test(s) || /^\d{1,2}$/.test(s);
+  // DD-Mon or DD/Mon (e.g. 01-Jan, 01/Feb)
+  if (/^\d{1,2}[-/]\w+$/.test(s)) return true;
+  // DD/MM/YYYY or DD-MM-YYYY
+  if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(s)) return true;
+  // DD-MM or DD/MM (ambiguous short form)
+  if (/^\d{1,2}[/-]\d{1,2}$/.test(s)) return true;
+  // "Month Day" or "Day Month" e.g. "February 1" or "1 February"
+  if (/^([A-Za-z]{3,})\s+\d{1,2}$/.test(s) || /^\d{1,2}\s+[A-Za-z]{3,}$/.test(s)) return true;
+  // Plain day number
+  if (/^\d{1,2}$/.test(s)) return true;
+  return false;
+}
+
+/**
+ * Parse a date cell into { month, day }.
+ * Handles: DD-Mon, DD/Mon, DD/MM/YYYY, DD-MM-YYYY, DD/MM, DD-MM,
+ *          "February 1", "1 February", plain day number.
+ * Returns null if unrecognisable.
+ */
+function parseDate(
+  rawDate: string,
+  fixedMonth: number
+): { month: number; day: number; yearScope: boolean } | null {
+  const s = rawDate.trim();
+  if (!s) return null;
+
+  // DD-Mon or DD/Mon (e.g. 01-Apr, 01/Apr)
+  const ddMon = s.match(/^(\d{1,2})[-/]([A-Za-z]+)$/);
+  if (ddMon) {
+    const day   = parseInt(ddMon[1], 10);
+    const abbr  = ddMon[2].toLowerCase().slice(0, 3);
+    const month = MONTH_ABBR_MAP[abbr] ?? MONTH_ABBR_MAP[ddMon[2].toLowerCase()];
+    if (month && day >= 1 && day <= 31) return { month, day, yearScope: true };
+  }
+
+  // DD/MM/YYYY or DD-MM-YYYY
+  const ddmmyyyy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (ddmmyyyy) {
+    const day   = parseInt(ddmmyyyy[1], 10);
+    const month = parseInt(ddmmyyyy[2], 10);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31)
+      return { month, day, yearScope: true };
+  }
+
+  // DD/MM or DD-MM (two-number short form — treat as DD/MM)
+  const ddmm = s.match(/^(\d{1,2})[/-](\d{1,2})$/);
+  if (ddmm) {
+    const day   = parseInt(ddmm[1], 10);
+    const month = parseInt(ddmm[2], 10);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31)
+      return { month, day, yearScope: true };
+  }
+
+  // "February 1" or "Feb 1"
+  const monDay = s.match(/^([A-Za-z]+)\s+(\d{1,2})$/);
+  if (monDay) {
+    const abbr  = monDay[1].toLowerCase().slice(0, 3);
+    const month = MONTH_ABBR_MAP[abbr] ?? MONTH_ABBR_MAP[monDay[1].toLowerCase()];
+    const day   = parseInt(monDay[2], 10);
+    if (month && day >= 1 && day <= 31) return { month, day, yearScope: true };
+  }
+
+  // "1 February" or "1 Feb"
+  const dayMon = s.match(/^(\d{1,2})\s+([A-Za-z]+)$/);
+  if (dayMon) {
+    const day   = parseInt(dayMon[1], 10);
+    const abbr  = dayMon[2].toLowerCase().slice(0, 3);
+    const month = MONTH_ABBR_MAP[abbr] ?? MONTH_ABBR_MAP[dayMon[2].toLowerCase()];
+    if (month && day >= 1 && day <= 31) return { month, day, yearScope: true };
+  }
+
+  // Plain day number — use fixedMonth
+  const plain = s.match(/^(\d{1,2})$/);
+  if (plain) {
+    const day = parseInt(plain[1], 10);
+    if (day >= 1 && day <= 31) return { month: fixedMonth, day, yearScope: false };
+  }
+
+  return null;
 }
 
 interface ParsedRow {
@@ -171,37 +253,24 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
     let day = 0;
 
     const rawDate = cells[dateIdx] ?? '';
-    const ddMon   = rawDate.match(/^(\d{1,2})[-/](\w+)$/);
-    const plainDay = rawDate.match(/^\d{1,2}$/);
+    const parsed = parseDate(rawDate, fixedMonth);
 
-    if (ddMon) {
-      day = parseInt(ddMon[1], 10);
-      const abbr = ddMon[2].toLowerCase().slice(0, 3);
-      const parsedMonth = MONTH_ABBR_MAP[abbr] ?? parseInt(ddMon[2], 10);
-      if (!parsedMonth || parsedMonth < 1 || parsedMonth > 12) {
-        rowErrors.push(`Row ${i + 1}: unrecognised month in date "${rawDate}"`);
-      } else {
-        month = parsedMonth;
-        detectedYearScope = true;
-      }
-    } else if (plainDay) {
-      day = parseInt(plainDay[0], 10);
-      month = fixedMonth;
+    if (parsed) {
+      month = parsed.month;
+      day   = parsed.day;
+      if (parsed.yearScope) detectedYearScope = true;
     } else if (hasMonthCol && monthIdx !== -1) {
       const rawMonth = cells[monthIdx] ?? '';
       const parsedMonth = parseInt(rawMonth, 10);
       if (isNaN(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
         rowErrors.push(`Row ${i + 1}: invalid month "${rawMonth}"`);
       } else { month = parsedMonth; }
-      day = parseInt(rawDate, 10);
-      if (isNaN(day)) rowErrors.push(`Row ${i + 1}: unrecognised date/day value "${rawDate}"`);
-    } else {
-      const parts = rawDate.split(/[-/]/).map(Number);
-      if (parts.length === 2 && parts[0] >= 1 && parts[1] >= 1 && parts[1] <= 12) {
-        day = parts[0]; month = parts[1];
-      } else {
-        rowErrors.push(`Row ${i + 1}: unrecognised date "${rawDate}" — use DD-Mon (e.g. 01-Feb) or plain day number`);
+      const dayParsed = parseDate(rawDate, fixedMonth);
+      if (dayParsed) { day = dayParsed.day; } else {
+        rowErrors.push(`Row ${i + 1}: unrecognised date/day value "${rawDate}"`);
       }
+    } else {
+      rowErrors.push(`Row ${i + 1}: unrecognised date "${rawDate}" — use DD-Mon (e.g. 01-Feb), DD/MM/YYYY, DD-MM, or plain day number`);
     }
 
     if (day < 1 || day > 31 || isNaN(day)) {
@@ -413,6 +482,10 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
         setStage('done');
         setProgress('');
         toast.success(`${validRows.length} row${validRows.length !== 1 ? 's' : ''} imported across ${resultMap.size} month${resultMap.size !== 1 ? 's' : ''} for ${year}.`);
+        activityLogger.log('prayer_times_csv_imported', 'prayer_times', {
+          entityLabel: `${validRows.length} rows across ${resultMap.size} months (${year})`,
+          details: { rows: validRows.length, months: monthsAffected, year },
+        });
         onImported(resultMap);
       } catch (err) {
         console.error('CSV year import error:', err);

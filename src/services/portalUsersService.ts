@@ -6,6 +6,7 @@
 
 import { supabase } from '@/lib/supabase';
 import type { UserRole } from '@/hooks/useAuth';
+import { activityLogger } from '@/services/activityLogService';
 
 export interface PortalUser {
   id: string;
@@ -70,6 +71,7 @@ export const portalUsersService = {
       if (error.code === '23505') throw new Error(`Username "${username}" is already taken.`);
       throw new Error(`Failed to create user: ${error.message}`);
     }
+    activityLogger.log('user_created', 'portal_user', { entityId: data.id, entityLabel: data.username, details: { role: data.role } });
     return data as PortalUser;
   },
 
@@ -95,6 +97,16 @@ export const portalUsersService = {
       .select('id, username, name, role, is_active, created_by, last_login, created_at, updated_at')
       .single();
     if (error) throw new Error(`Failed to update user: ${error.message}`);
+    // Determine what kind of update this was
+    if (payload.is_active !== undefined) {
+      activityLogger.log(
+        payload.is_active ? 'user_activated' : 'user_deactivated',
+        'portal_user',
+        { entityId: id, entityLabel: data.username }
+      );
+    } else {
+      activityLogger.log('user_updated', 'portal_user', { entityId: id, entityLabel: data.username });
+    }
     return data as PortalUser;
   },
 
@@ -116,5 +128,6 @@ export const portalUsersService = {
 
     const { error } = await supabase.from('portal_users').delete().eq('id', id);
     if (error) throw new Error(`Failed to delete user: ${error.message}`);
+    activityLogger.log('user_deleted', 'portal_user', { entityId: id, entityLabel: target?.username });
   },
 };
