@@ -48,7 +48,7 @@ export async function bulkUpdatePrayerTimes(ids: string[], data: PrayerTimeUpdat
 export async function fetchAdhkar(category?: string): Promise<Dhikr[]> {
   let query = supabase
     .from('adhkar')
-    .select('id,title,arabic_title,arabic,transliteration,translation,reference,count,prayer_time,group_name,group_order,display_order,is_active,description,file_url,created_at,updated_at')
+    .select('id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,group_name,group_order,display_order,is_active,description,file_url,created_at,updated_at')
     .order('prayer_time', { ascending: true })
     .order('group_order', { ascending: true })
     .order('display_order', { ascending: true })

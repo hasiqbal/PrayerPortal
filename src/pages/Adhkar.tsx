@@ -148,6 +148,12 @@ const SortableEntryRow = ({
           <p className="text-xl leading-loose text-right" dir="rtl" style={{ fontFamily: 'serif' }}>{row.arabic}</p>
           {row.transliteration && <p className="text-sm text-muted-foreground italic leading-relaxed">{row.transliteration}</p>}
           {row.translation && <p className="text-sm text-foreground/80 leading-relaxed">{row.translation}</p>}
+          {(row as Dhikr & { urdu_translation?: string | null }).urdu_translation && (
+            <p className="text-base text-right leading-loose" dir="rtl"
+              style={{ fontFamily: 'serif', lineHeight: '2.2', color: 'hsl(var(--foreground) / 0.8)' }}>
+              {(row as Dhikr & { urdu_translation?: string | null }).urdu_translation}
+            </p>
+          )}
           {row.reference && <p className="text-xs text-muted-foreground">📚 {row.reference}</p>}
         </div>
       )}
@@ -649,6 +655,7 @@ const Adhkar = () => {
   const [detailRow, setDetailRow] = useState<Dhikr | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<Dhikr[]>([]);
+  const [editHistory, setEditHistory] = useState<Dhikr[]>([]);
   const [toggling, setToggling] = useState<string | null>(null);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [editGroup, setEditGroup] = useState<AdhkarGroup | null>(null);
@@ -780,9 +787,11 @@ const Adhkar = () => {
   };
 
   const handleUpdated = (dhikr: Dhikr) => {
-    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
-      old.map((d) => (d.id === dhikr.id ? dhikr : d))
-    );
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => {
+      const prev = old.find((d) => d.id === dhikr.id);
+      if (prev) setEditHistory((h) => [...h.slice(-49), prev]);
+      return old.map((d) => (d.id === dhikr.id ? dhikr : d));
+    });
     setModalOpen(false);
     setEditRow(null);
   };
@@ -793,6 +802,23 @@ const Adhkar = () => {
 
   const handleRevert = (id: string) => {
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.id !== id));
+  };
+
+  const handleUndoEdit = async () => {
+    if (editHistory.length === 0) return;
+    const prev = editHistory[editHistory.length - 1];
+    setEditHistory((h) => h.slice(0, -1));
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+      old.map((d) => (d.id === prev.id ? prev : d))
+    );
+    try {
+      await updateDhikr(prev.id, prev as Parameters<typeof updateDhikr>[1]);
+      toast.success(`Reverted "${prev.title}" to previous version.`);
+    } catch {
+      queryClient.invalidateQueries({ queryKey: ['adhkar'] });
+      toast.error('Failed to undo edit. Refreshing data.');
+      setEditHistory((h) => [...h, prev]);
+    }
   };
 
   // ─── Duplicate Entry ──────────────────────────────────────────────────────
@@ -1456,9 +1482,17 @@ const Adhkar = () => {
               {undoStack.length > 0 && (
                 <Button variant="outline" size="sm" onClick={handleUndo}
                   className="gap-2 border-amber-400/60 text-amber-700 hover:bg-amber-50"
-                  title={`Restore: "${undoStack[undoStack.length - 1]?.title}"`}>
-                  ↩ Undo
+                  title={`Restore deleted: "${undoStack[undoStack.length - 1]?.title}"`}>
+                  ↩ Undo Delete
                   <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">{undoStack.length}</span>
+                </Button>
+              )}
+              {editHistory.length > 0 && (
+                <Button variant="outline" size="sm" onClick={handleUndoEdit}
+                  className="gap-2 border-blue-400/60 text-blue-700 hover:bg-blue-50"
+                  title={`Undo last edit: "${editHistory[editHistory.length - 1]?.title}"`}>
+                  ↩ Undo Edit
+                  <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">{editHistory.length}</span>
                 </Button>
               )}
               <Button variant="outline" size="sm" onClick={handleCreateTest} disabled={testCreating} className="gap-2 border-primary/30 text-primary hover:bg-primary/5">

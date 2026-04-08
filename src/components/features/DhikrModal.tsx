@@ -259,6 +259,7 @@ const EMPTY = {
   group_name: '',
   group_order: '' as number | string,
   display_order: '' as number | string,
+  urdu_translation: '',
   is_active: true,
   sections: null,
   file_url: '',
@@ -301,6 +302,7 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
       setForm({
         title: row.title, arabic_title: row.arabic_title ?? '', arabic: row.arabic,
         transliteration: row.transliteration ?? '', translation: row.translation ?? '',
+        urdu_translation: row.urdu_translation ?? '',
         reference: row.reference ?? '', count: row.count, prayer_time: row.prayer_time,
         group_name: row.group_name ?? '', group_order: row.group_order ?? '',
         display_order: row.display_order ?? '', is_active: row.is_active,
@@ -312,6 +314,7 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
       setForm({ ...EMPTY, ...(presetGroup ? { group_name: presetGroup.name, prayer_time: presetGroup.prayerTime } : {}) });
       setShowGroupInput(false);
       setShowQuranPicker(false);
+      setUploadingImage(false);
       setUploadingImage(false);
     }
   }, [row, open]);
@@ -341,6 +344,7 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
     arabic: form.arabic.trim() || '',
     transliteration: form.transliteration?.trim() || null,
     translation: form.translation?.trim() || null,
+    urdu_translation: form.urdu_translation?.trim() || null,
     reference: form.reference?.trim() || null,
     count: form.count || '1',
     prayer_time: form.prayer_time,
@@ -484,6 +488,13 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
             <Label htmlFor="translation" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Translation</Label>
             <Textarea id="translation" value={form.translation} onChange={(e) => set('translation', e.target.value)}
               placeholder="Glory be to Allah..." className="min-h-[60px] text-sm" />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="urdu_translation" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Urdu Translation</Label>
+            <Textarea id="urdu_translation" value={form.urdu_translation} onChange={(e) => set('urdu_translation', e.target.value)}
+              placeholder="اردو ترجمہ یہاں لکھیں…" dir="rtl" className="min-h-[60px] text-sm text-right"
+              style={{ fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2' }} />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

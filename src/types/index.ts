@@ -31,6 +31,7 @@ export interface Dhikr {
   arabic: string;
   transliteration: string | null;
   translation: string | null;
+  urdu_translation: string | null;
   reference: string | null;
   count: string;
   prayer_time: string;

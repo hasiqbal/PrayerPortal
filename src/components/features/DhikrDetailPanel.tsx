@@ -157,6 +157,23 @@ const DhikrDetailPanel = ({ dhikr, onClose, onEdit, onDelete }: DhikrDetailPanel
                 </div>
               )}
 
+              {/* Urdu Translation */}
+              {dhikr.urdu_translation && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <AlignLeft size={12} />
+                    Urdu Translation
+                  </p>
+                  <p
+                    className="text-base leading-loose text-right"
+                    dir="rtl"
+                    style={{ color: 'hsl(var(--foreground) / 0.85)', fontFamily: '"Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", serif', lineHeight: '2.2' }}
+                  >
+                    {dhikr.urdu_translation}
+                  </p>
+                </div>
+              )}
+
               {/* File / Image attachment */}
               {dhikr.file_url && (
                 <div>
