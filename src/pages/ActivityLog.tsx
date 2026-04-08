@@ -210,9 +210,16 @@ const ActivityLog = () => {
   const [entityFilter, setEntityFilter] = useState<string>('all');
   const [userFilter, setUserFilter]     = useState<string>('all');
 
+  const [tableReady, setTableReady] = useState<boolean | null>(null);
+
   const { data: entries = [], isLoading, refetch, isFetching } = useQuery({
     queryKey: ['activity_log'],
-    queryFn: () => activityLogger.fetchRecent(200),
+    queryFn: async () => {
+      const exists = await activityLogger.tableExists();
+      setTableReady(exists);
+      if (!exists) return [];
+      return activityLogger.fetchRecent(200);
+    },
     staleTime: 30_000,
   });
 
@@ -293,6 +300,50 @@ const ActivityLog = () => {
               </Button>
             </div>
           </div>
+
+          {/* Setup SQL banner — shown when table is missing */}
+          {tableReady === false && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-amber-600 font-bold text-sm">⚠ Activity Log table not found on external Supabase</span>
+              </div>
+              <p className="text-xs text-amber-800 leading-relaxed">
+                The <code className="bg-amber-100 px-1 rounded font-mono">activity_log</code> table needs to be created on your external Supabase database (<code className="bg-amber-100 px-1 rounded font-mono">lhaqqqatdztuijgdfdcf</code>). Run the SQL below in your Supabase Dashboard → SQL Editor:
+              </p>
+              <pre className="bg-white border border-amber-200 rounded-lg p-3 text-[10px] font-mono text-slate-700 overflow-x-auto whitespace-pre">{`-- Create activity_log table
+create table if not exists activity_log (
+  id uuid primary key default gen_random_uuid(),
+  username text not null,
+  user_role text not null default 'admin',
+  action text not null,
+  entity_type text not null,
+  entity_id text,
+  entity_label text,
+  details jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists activity_log_created_at_idx on activity_log(created_at desc);
+create index if not exists activity_log_username_idx on activity_log(username);
+create index if not exists activity_log_entity_type_idx on activity_log(entity_type);
+
+alter table activity_log enable row level security;
+
+create policy "anon_no_access" on activity_log for select to anon using (false);
+create policy "auth_insert" on activity_log for insert to authenticated with check (true);
+create policy "auth_select" on activity_log for select to authenticated using (true);
+
+-- Also insert editor/viewer users into portal_users
+insert into portal_users (username, name, password, role, is_active, created_by)
+values
+  ('masjid_editor', 'Masjid Editor', 'editor123', 'editor', true, 'admin'),
+  ('masjid_viewer', 'Masjid Viewer', 'viewer123', 'viewer', true, 'admin')
+on conflict (username) do nothing;`}</pre>
+              <Button size="sm" variant="outline" onClick={() => refetch()} className="border-amber-400 text-amber-700 hover:bg-amber-100">
+                Check Again After Running SQL
+              </Button>
+            </div>
+          )}
 
           {/* Log list */}
           {isLoading ? (

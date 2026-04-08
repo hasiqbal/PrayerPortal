@@ -96,6 +96,16 @@ class ActivityLogger {
     }
   }
 
+  /** Returns true if the activity_log table exists on this Supabase instance */
+  async tableExists(): Promise<boolean> {
+    const { error } = await supabase
+      .from('activity_log')
+      .select('id')
+      .limit(1);
+    // Table-not-found returns a 42P01 error
+    return !error || !error.message.includes('does not exist');
+  }
+
   /** Fetch recent log entries (most recent first) */
   async fetchRecent(limit = 100): Promise<ActivityLogEntry[]> {
     const { data, error } = await supabase
@@ -105,6 +115,11 @@ class ActivityLogger {
       .limit(limit);
 
     if (error) {
+      // Table may not exist on external Supabase yet — return empty silently
+      if (error.message.includes('does not exist') || error.code === '42P01') {
+        console.warn('[ActivityLog] Table not found on this database. Run the setup SQL to create it.');
+        return [];
+      }
       console.error('[ActivityLog] Failed to fetch:', error.message);
       return [];
     }
