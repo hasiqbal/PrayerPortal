@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { PrayerTime, PrayerTimeUpdate } from '@/types';
 import { bulkUpdatePrayerTimesFromCsv, bulkUpdatePrayerTimesFromYearCsv, fetchPrayerTimes } from '@/lib/api';
 import { toast } from 'sonner';
-import { Upload, AlertCircle, CheckCircle2, Loader2, Download, AlertTriangle, ArrowLeft, ClipboardPaste, FileUp, ArrowRight } from 'lucide-react';
+import { Upload, AlertCircle, CheckCircle2, Loader2, Download, AlertTriangle, ArrowLeft, ClipboardPaste, FileUp, ArrowRight, Info } from 'lucide-react';
 
 // ─── CSV columns — matching user's CSV column order ───────────────────────────
 const CSV_COLUMNS: (keyof PrayerTimeUpdate)[] = [
@@ -52,6 +52,12 @@ function normaliseHeader(raw: string): keyof PrayerTimeUpdate | 'date' | 'month'
   return ALIASES[s] ?? null;
 }
 
+/** Returns true if a cell value looks like a date (01-Jan, 01/Feb, or plain day 1–31) */
+function looksLikeDate(cell: string): boolean {
+  const s = cell.trim();
+  return /^\d{1,2}[-/]\w+$/.test(s) || /^\d{1,2}$/.test(s);
+}
+
 interface ParsedRow {
   month: number;
   day: number;
@@ -71,15 +77,16 @@ interface ParseResult {
   parseErrors: string[];
   validationIssues: ValidationIssue[];
   isYearScope: boolean;
+  headerless: boolean;
 }
 
 // ─── CSV parser ───────────────────────────────────────────────────────────────
 function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number): ParseResult {
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter((l) => l.trim());
-  if (lines.length < 2) {
+  if (lines.length < 1) {
     return {
-      rows: [], unknownColumns: [], isYearScope: false,
-      parseErrors: ['CSV must have a header row and at least one data row.'],
+      rows: [], unknownColumns: [], isYearScope: false, headerless: false,
+      parseErrors: ['CSV appears to be empty. Please paste at least one row of data.'],
       validationIssues: [],
     };
   }
@@ -90,28 +97,50 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
   const delimiter = tabCount > commaCount ? '\t' : ',';
   const splitRow = (line: string) => line.split(delimiter).map((c) => c.trim().replace(/^"(.*)"$/, '$1'));
 
-  let headerRowIdx = 0;
+  // ── Header detection: scan first 5 lines for column names ─────────────────
+  let headerRowIdx = -1;
   for (let i = 0; i < Math.min(lines.length, 5); i++) {
     const cols = splitRow(lines[i]).map(normaliseHeader);
     if (cols.some((c) => c === 'date' || c === 'month' || CSV_COLUMNS.includes(c as keyof PrayerTimeUpdate))) {
-      headerRowIdx = i; break;
+      headerRowIdx = i;
+      break;
     }
   }
 
-  const rawHeaders = splitRow(lines[headerRowIdx]);
-  const normHeaders = rawHeaders.map(normaliseHeader);
+  // ── Headerless detection: first cell of first line looks like a date ───────
+  const firstLineCells = splitRow(lines[0]);
+  const isHeaderless = headerRowIdx === -1 && looksLikeDate(firstLineCells[0] ?? '');
+
+  // ── Build header mapping ───────────────────────────────────────────────────
+  let rawHeaders: string[];
+  let normHeaders: (keyof PrayerTimeUpdate | 'date' | 'month' | null)[];
+  let dataStartIdx: number;
+
+  if (isHeaderless) {
+    // No header row — use positional default: DATE, then CSV_COLUMNS in order
+    rawHeaders   = ['DATE', ...CSV_COLUMNS];
+    normHeaders  = (['date', ...CSV_COLUMNS] as typeof normHeaders);
+    dataStartIdx = 0;
+  } else if (headerRowIdx !== -1) {
+    // Header row found
+    rawHeaders   = splitRow(lines[headerRowIdx]);
+    normHeaders  = rawHeaders.map(normaliseHeader);
+    dataStartIdx = headerRowIdx + 1;
+  } else {
+    // Neither header nor date-like first cell
+    return {
+      rows: [], unknownColumns: [], isYearScope: scopeHint === 'year', headerless: false,
+      parseErrors: [
+        'Could not detect a header row or date values in the pasted data. ' +
+        'Either include a header row (DATE, FAJR, SUNRISE…) or start with date values like "01-Jan" or "01-Feb".',
+      ],
+      validationIssues: [],
+    };
+  }
 
   const hasDateCol  = normHeaders.includes('date');
   const hasMonthCol = normHeaders.includes('month');
   const isYearScope = hasDateCol || hasMonthCol || scopeHint === 'year';
-
-  if (!hasDateCol) {
-    return {
-      rows: [], unknownColumns: [], isYearScope,
-      parseErrors: ['CSV must include a "DATE" or "day" column. Values like "01-Jan" or plain day numbers (1, 2 …) are both accepted.'],
-      validationIssues: [],
-    };
-  }
 
   const unknownColumns: { col: string; suggestion?: string }[] = [];
   const recognisedTimeCols = normHeaders.filter(
@@ -119,8 +148,8 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
   );
   const validationIssues: ValidationIssue[] = [];
   if (recognisedTimeCols.length === 0) {
-    validationIssues.push({ type: 'error', message: 'No recognised prayer time columns found.' });
-    return { rows: [], unknownColumns, parseErrors: [], validationIssues, isYearScope };
+    validationIssues.push({ type: 'error', message: 'No recognised prayer time columns found. Check your column names match: fajr, sunrise, zuhr, asr, maghrib, isha.' });
+    return { rows: [], unknownColumns, parseErrors: [], validationIssues, isYearScope, headerless: isHeaderless };
   }
 
   const dateIdx  = normHeaders.indexOf('date');
@@ -130,7 +159,7 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
   const keysSeen = new Set<string>();
   let detectedYearScope = hasMonthCol;
 
-  for (let i = headerRowIdx + 1; i < lines.length; i++) {
+  for (let i = dataStartIdx; i < lines.length; i++) {
     const cells = splitRow(lines[i]);
     const hasTime = cells.some((c) => /^\d{1,2}:\d{2}$/.test(c));
     const allText = cells.every((c) => c === '' || (/^[a-z\s]+$/i.test(c) && !/^\d/.test(c)));
@@ -171,7 +200,7 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
       if (parts.length === 2 && parts[0] >= 1 && parts[1] >= 1 && parts[1] <= 12) {
         day = parts[0]; month = parts[1];
       } else {
-        rowErrors.push(`Row ${i + 1}: unrecognised date "${rawDate}" — use DD-Mon (e.g. 01-Jan) or plain day`);
+        rowErrors.push(`Row ${i + 1}: unrecognised date "${rawDate}" — use DD-Mon (e.g. 01-Feb) or plain day number`);
       }
     }
 
@@ -206,7 +235,7 @@ function parseCsv(text: string, scopeHint: 'year' | 'month', fixedMonth: number)
     rows.push({ month, day, fields, errors: rowErrors });
   }
 
-  return { rows, unknownColumns, parseErrors: [], validationIssues, isYearScope: detectedYearScope || isYearScope };
+  return { rows, unknownColumns, parseErrors: [], validationIssues, isYearScope: detectedYearScope || isYearScope, headerless: isHeaderless };
 }
 
 // ─── Template download ────────────────────────────────────────────────────────
@@ -242,7 +271,6 @@ function downloadTemplate(scope: 'year' | 'month', year: number, month: number) 
 }
 
 // ─── Diff cell ────────────────────────────────────────────────────────────────
-// Shows old → new with amber highlight when a value changes
 const DiffCell = ({ oldVal, newVal }: { oldVal: string | null | undefined; newVal: string | null | undefined }) => {
   const old_ = oldVal ?? null;
   const new_ = newVal ?? null;
@@ -283,11 +311,9 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
   const [parseResult,  setParseResult]  = useState<ParseResult | null>(null);
   const [fileName,     setFileName]     = useState('');
   const [progress,     setProgress]     = useState('');
-  // Map<month, Map<day, PrayerTime>> — current DB values for diff view
   const [existingData, setExistingData] = useState<Map<number, Map<number, PrayerTime>>>(new Map());
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Auto-parse pre-loaded CSV when the modal opens with one
   const preloadHandled = useRef(false);
   React.useEffect(() => {
     if (open && preloadedCsv && !preloadHandled.current) {
@@ -341,8 +367,8 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
     if (file) handleFile(file);
   };
 
-  const validRows   = parseResult?.rows.filter((r) => r.errors.length === 0) ?? [];
-  const errorRows   = parseResult?.rows.filter((r) => r.errors.length > 0) ?? [];
+  const validRows    = parseResult?.rows.filter((r) => r.errors.length === 0) ?? [];
+  const errorRows    = parseResult?.rows.filter((r) => r.errors.length > 0) ?? [];
   const allRowErrors = errorRows.flatMap((r) => r.errors);
   const blockingIssues = (parseResult?.validationIssues ?? []).filter((i) => i.type === 'error');
   const warningIssues  = (parseResult?.validationIssues ?? []).filter((i) => i.type === 'warning');
@@ -356,7 +382,6 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
   });
   const monthsAffected = Array.from(rowsByMonth.keys()).sort((a, b) => a - b);
 
-  // ─── Proceed to preview: fetch current DB data for diff display ──────────
   const proceedToPreview = async () => {
     setStage('loadingExisting');
     try {
@@ -369,7 +394,6 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
       );
       setExistingData(new Map(fetches));
     } catch {
-      // If fetch fails, just show new values without diff
       setExistingData(new Map());
     }
     setStage('parsed');
@@ -388,8 +412,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
         const resultMap = await bulkUpdatePrayerTimesFromYearCsv(rowsByMonth);
         setStage('done');
         setProgress('');
-        const totalSaved = validRows.length;
-        toast.success(`${totalSaved} row${totalSaved !== 1 ? 's' : ''} imported across ${resultMap.size} month${resultMap.size !== 1 ? 's' : ''} for ${year}.`);
+        toast.success(`${validRows.length} row${validRows.length !== 1 ? 's' : ''} imported across ${resultMap.size} month${resultMap.size !== 1 ? 's' : ''} for ${year}.`);
         onImported(resultMap);
       } catch (err) {
         console.error('CSV year import error:', err);
@@ -415,11 +438,8 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
   };
 
   const effectiveScope = parseResult?.isYearScope ?? (scope === 'year');
-
-  // Columns that actually have data in the valid rows
   const previewCols = CSV_COLUMNS.filter((col) => validRows.some((r) => col in r.fields));
 
-  // Count cells that are actually changing
   const changedCellCount = validRows.reduce((acc, r) => {
     const existing = existingData.get(r.month)?.get(r.day);
     if (!existing) return acc + Object.keys(r.fields).length;
@@ -441,7 +461,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
             Import Prayer Times CSV
           </DialogTitle>
           <p className="text-xs text-muted-foreground pt-1 leading-relaxed">
-            Upload or paste prayer times in HH:MM format — including directly from Excel.
+            Upload or paste prayer times in HH:MM format — headers optional when dates like "01-Feb" are in the first column.
           </p>
         </DialogHeader>
 
@@ -464,9 +484,12 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
         {/* ── Column hint ── */}
         {stage === 'idle' && (
           <div className="space-y-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Expected columns — extra/unknown columns are silently skipped
-            </p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Expected columns
+              </p>
+              <span className="text-[10px] text-muted-foreground/60">— extra columns silently skipped · headers optional if first column has dates</span>
+            </div>
             <div className="flex flex-wrap gap-1">
               <code className="text-[10px] font-mono bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded text-primary font-semibold">DATE</code>
               <span className="text-[10px] text-muted-foreground/60 self-center mx-0.5">·</span>
@@ -502,25 +525,27 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
         {stage === 'idle' && inputMode === 'paste' && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-muted-foreground">Select all cells in Excel and paste below (Ctrl+A then Ctrl+C)</p>
+              <p className="text-xs font-semibold text-muted-foreground">
+                Select cells in Excel and paste below — headers not required if dates (01-Jan, 01-Feb…) are in column A
+              </p>
               <button onClick={async () => {
                   const text = await navigator.clipboard.readText().catch(() => '');
                   if (text) setPasteText(text);
                   else toast.error('Could not read clipboard. Paste manually.');
                 }}
-                className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
+                className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline shrink-0">
                 <ClipboardPaste size={11} /> Paste from clipboard
               </button>
             </div>
             <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)}
-              placeholder={`DATE\tFAJR\tSUNRISE\tZUHR\tASR\tMAGHRIB\tISHA\t...\n01-Jan\t06:13\t08:25\t12:13\t14:13\t15:59\t17:48\t...`}
+              placeholder={`01-Feb\t04:29\t06:41\t07:01\t12:43\t13:13\t17:42\t19:47\t21:31\t05:45\t14:00\t18:45\t19:47\t21:45\n02-Feb\t04:26\t06:36\t...`}
               className="w-full h-44 font-mono text-xs rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(142_30%_97%)] px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-[hsl(142_60%_35%/0.3)] focus:border-[hsl(142_50%_70%)] placeholder:text-muted-foreground/50 transition-all"
               spellCheck={false} />
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <p className="text-[10px] text-muted-foreground">
                 {pasteText.trim()
                   ? `${pasteText.trim().split('\n').length} line${pasteText.trim().split('\n').length !== 1 ? 's' : ''} detected`
-                  : 'Section header rows like "STARTING TIMES" are automatically skipped'}
+                  : 'Paste any section — headers auto-detected, section titles like "STARTING TIMES" are skipped'}
               </p>
               <Button onClick={handlePasteSubmit} disabled={!pasteText.trim()} size="sm" className="gap-2"
                 style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
@@ -539,7 +564,24 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${effectiveScope ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
                 {effectiveScope ? `Year scope — ${monthsAffected.length} month${monthsAffected.length !== 1 ? 's' : ''}` : `Month scope — ${monthName}`}
               </span>
+              {parseResult.headerless && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium flex items-center gap-1">
+                  <Info size={10} /> Auto column order
+                </span>
+              )}
             </div>
+
+            {/* Headerless info banner */}
+            {parseResult.headerless && parseErrors.length === 0 && blockingIssues.length === 0 && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 flex items-start gap-2">
+                <Info size={13} className="text-blue-500 mt-0.5 shrink-0" />
+                <p className="text-xs text-blue-700">
+                  No header row detected — columns mapped automatically in order:{' '}
+                  <strong>DATE, {CSV_COLUMNS.join(', ')}</strong>.
+                  If your spreadsheet uses a different column order, add a header row.
+                </p>
+              </div>
+            )}
 
             {effectiveScope && monthsAffected.length > 0 && blockingIssues.length === 0 && parseErrors.length === 0 && (
               <div className="flex flex-wrap gap-1">
@@ -625,6 +667,9 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
                   {changedCellCount} cell{changedCellCount !== 1 ? 's' : ''} changing
                 </span>
               )}
+              {parseResult.headerless && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">Auto column order</span>
+              )}
             </div>
 
             {effectiveScope && monthsAffected.length > 0 && (
@@ -637,7 +682,6 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
               </div>
             )}
 
-            {/* Diff legend */}
             {existingData.size > 0 && (
               <div className="flex items-center gap-3 text-[10px] text-muted-foreground bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 flex-wrap">
                 <span className="font-semibold text-amber-700">Change legend:</span>
