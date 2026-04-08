@@ -328,13 +328,13 @@ export async function bulkUpdatePrayerTimesFromCsv(
     insertedCount = toInsert.length;
   }
 
-  // ── Step 4: re-fetch the month to get the actual saved data ──────────────
+  // ── Step 4: re-fetch the FULL month to reflect all saved data ───────────
   const saved = await fetchPrayerTimes(month);
   console.log(`Month ${month}: ${updatedCount} updated, ${insertedCount} inserted, ${saved.length} total rows in DB`);
 
-  // Return updated/inserted rows by matching day numbers we processed
-  const processedDays = new Set(rows.map((r) => r.day));
-  return saved.filter((r) => processedDays.has(r.day));
+  // Return ALL rows for this month so the calendar can fully render
+  // (not just the processed days — this allows existing rows to remain visible too)
+  return saved;
 }
 
 export async function bulkUpdatePrayerTimesFromYearCsv(

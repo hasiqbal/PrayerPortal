@@ -406,8 +406,8 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
         setStage('done');
         setProgress('');
         // Count by processed valid rows (re-fetch may return same count or more)
-        const totalSaved = Array.from(resultMap.values()).reduce((s, arr) => s + arr.length, 0);
-        const displayCount = totalSaved > 0 ? totalSaved : validRows.length;
+        const totalSaved = validRows.length;
+        const displayCount = totalSaved;
         toast.success(`${displayCount} row${displayCount !== 1 ? 's' : ''} imported across ${resultMap.size} month${resultMap.size !== 1 ? 's' : ''} for ${year}.`);
         onImported(resultMap);
         setTimeout(() => handleClose(), 1000);

@@ -196,10 +196,31 @@ const PrayerTimes = () => {
 
   const handleCsvImported = useCallback((updatedByMonth: Map<number, PrayerTime[]>) => {
     updatedByMonth.forEach((updated, m) => {
-      queryClient.setQueryData<PrayerTime[]>(['prayer_times', m], (old) => { if (!old) return old; const map = new Map(updated.map((r) => [r.id, r])); return old.map((r) => map.get(r.id) ?? r); });
+      if (updated.length > 0) {
+        // Directly write the full fetched data for each month so the table
+        // reflects the imported rows immediately — no stale merge.
+        queryClient.setQueryData<PrayerTime[]>(['prayer_times', m], (old) => {
+          if (!old || old.length === 0) return updated;
+          // Merge: replace rows that exist in updated, keep others
+          const map = new Map(updated.map((r) => [r.day, r]));
+          const merged = old.map((r) => map.get(r.day) ?? r);
+          // Also add any inserted rows that weren't in old
+          const oldDays = new Set(old.map((r) => r.day));
+          for (const r of updated) {
+            if (!oldDays.has(r.day)) merged.push(r);
+          }
+          return merged.sort((a, b) => a.day - b.day);
+        });
+      }
+      // Always invalidate so next navigation re-fetches fresh data
+      queryClient.invalidateQueries({ queryKey: ['prayer_times', m] });
     });
+    // If the currently-viewed month was in the import, force an immediate refetch
+    if (updatedByMonth.has(selectedMonth)) {
+      refetch();
+    }
     setCsvModal(false);
-  }, [queryClient]);
+  }, [queryClient, selectedMonth, refetch]);
 
   const monthHasBSTChange = (m: number) => m === 3 || m === 10;
   const _bstStartDay = lastSundayOf(selectedYear, 3);
