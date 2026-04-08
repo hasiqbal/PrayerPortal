@@ -1,22 +1,29 @@
-
 import { useState } from 'react';
-import { CalendarDays, BookOpen, Database, Bell, BellRing, Menu, X, Home, FileSpreadsheet, Star, BarChart2, LogOut, Settings2 } from 'lucide-react';
+import {
+  CalendarDays, BookOpen, Database, Bell, BellRing,
+  Menu, X, Home, FileSpreadsheet, Star, BarChart2,
+  LogOut, Settings2,
+} from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import masjidLogo from '@/assets/masjid-logo.png';
 
+// ─── Navigation config ────────────────────────────────────────────────────────
+
 const NAV_ITEMS = [
-  { to: '/',                 icon: Home,           label: 'Dashboard'        },
-  { to: '/prayer-times',    icon: CalendarDays,   label: 'Prayer Times'     },
-  { to: '/adhkar',          icon: BookOpen,       label: 'Adhkar'           },
-  { to: '/announcements',   icon: Bell,           label: 'Announcements'    },
-  { to: '/sunnah-reminders',icon: Star,           label: 'Sunnah Reminders' },
-  { to: '/notifications',   icon: BellRing,       label: 'Notifications'    },
-  { to: '/analytics',       icon: BarChart2,      label: 'Analytics'        },
-  { to: '/settings',        icon: Settings2,      label: 'Settings'         },
-  { to: '/cloud-data',      icon: Database,       label: 'Cloud Data'       },
-  { to: '/excel-converter', icon: FileSpreadsheet,label: 'Excel → CSV'      },
+  { to: '/',                  icon: Home,            label: 'Dashboard'        },
+  { to: '/prayer-times',      icon: CalendarDays,    label: 'Prayer Times'     },
+  { to: '/adhkar',            icon: BookOpen,        label: 'Adhkar'           },
+  { to: '/announcements',     icon: Bell,            label: 'Announcements'    },
+  { to: '/sunnah-reminders',  icon: Star,            label: 'Sunnah Reminders' },
+  { to: '/notifications',     icon: BellRing,        label: 'Notifications'    },
+  { to: '/analytics',         icon: BarChart2,       label: 'Analytics'        },
+  { to: '/settings',          icon: Settings2,       label: 'Settings'         },
+  { to: '/cloud-data',        icon: Database,        label: 'Cloud Data'       },
+  { to: '/excel-converter',   icon: FileSpreadsheet, label: 'Excel → CSV'      },
 ];
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 const LogoBrand = () => (
   <div className="sidebar-pattern px-4 pt-5 pb-4 border-b border-[hsl(var(--sidebar-border))]">
@@ -28,7 +35,7 @@ const LogoBrand = () => (
       />
       <div className="min-w-0">
         <p className="font-bold text-[13px] leading-tight text-[hsl(142_55%_28%)] truncate">
-          Jami' Masjid Noorani
+          Jami&apos; Masjid Noorani
         </p>
         <p className="text-[10px] font-semibold tracking-widest uppercase text-[hsl(var(--muted-foreground))] mt-0.5">
           Admin Portal
@@ -38,12 +45,63 @@ const LogoBrand = () => (
   </div>
 );
 
+const SignOutButton = ({
+  onSignOut,
+  compact = false,
+}: {
+  onSignOut: () => void;
+  compact?: boolean;
+}) => (
+  <button
+    onClick={onSignOut}
+    className={`flex items-center gap-2 rounded-lg border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-200 transition-colors font-medium ${
+      compact
+        ? 'px-2.5 py-1.5 text-xs'
+        : 'w-full px-3 py-2 text-xs'
+    }`}
+    title="Sign out"
+  >
+    <LogOut size={13} />
+    {!compact && 'Sign Out'}
+  </button>
+);
+
+const SidebarFooter = ({ onNavClick }: { onNavClick?: () => void }) => {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login');
+    onNavClick?.();
+  };
+
+  return (
+    <div className="px-4 py-4 border-t border-[hsl(var(--sidebar-border))] mt-auto space-y-2">
+      {/* Live indicator */}
+      <div className="flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block animate-pulse" />
+        <span className="text-[11px] font-semibold text-green-600">Live</span>
+      </div>
+
+      {/* Logged in user */}
+      {user && (
+        <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate">
+          Signed in as <span className="font-semibold">{user.username}</span>
+        </p>
+      )}
+
+      {/* Sign out button — always visible */}
+      <SignOutButton onSignOut={handleSignOut} />
+    </div>
+  );
+};
+
 const NavContent = ({ onNavClick }: { onNavClick?: () => void }) => (
   <div className="flex flex-col h-full">
     <LogoBrand />
 
-    {/* Navigation */}
-    <nav className="flex-1 px-2 pt-4 pb-2 space-y-0.5">
+    <nav className="flex-1 px-2 pt-4 pb-2 space-y-0.5 overflow-y-auto">
       <p className="text-[9px] font-bold uppercase tracking-[0.15em] px-3 mb-2 text-[hsl(var(--muted-foreground))]">
         Management
       </p>
@@ -63,10 +121,7 @@ const NavContent = ({ onNavClick }: { onNavClick?: () => void }) => (
         >
           {({ isActive }) => (
             <>
-              <Icon
-                size={15}
-                className={isActive ? 'text-[hsl(142_60%_32%)]' : 'opacity-60'}
-              />
+              <Icon size={15} className={isActive ? 'text-[hsl(142_60%_32%)]' : 'opacity-60'} />
               {label}
             </>
           )}
@@ -74,75 +129,73 @@ const NavContent = ({ onNavClick }: { onNavClick?: () => void }) => (
       ))}
     </nav>
 
-    {/* Footer */}
     <SidebarFooter onNavClick={onNavClick} />
   </div>
 );
 
-const SidebarFooter = ({ onNavClick }: { onNavClick?: () => void }) => {
-  const { user, signOut } = useAuth();
-  const navigate = useNavigate();
-
-  const handleSignOut = async () => {
-    await signOut();
-    navigate('/login');
-    onNavClick?.();
-  };
-
-  return (
-    <div className="px-4 py-4 border-t border-[hsl(var(--sidebar-border))] mt-auto">
-      <div className="flex items-center gap-1.5 mb-2">
-        <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block animate-pulse" />
-        <span className="text-[11px] font-semibold text-green-600">Live</span>
-      </div>
-      {user && (
-        <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate mb-2">{user.username}</p>
-      )}
-      <button
-        onClick={handleSignOut}
-        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-200 transition-colors text-xs font-medium"
-        title="Sign out"
-      >
-        <LogOut size={13} />
-        Sign Out
-      </button>
-    </div>
-  );
-};
+// ─── Mobile brand strip ───────────────────────────────────────────────────────
 
 const MobileBrand = () => (
   <div className="flex items-center gap-2.5">
     <img src={masjidLogo} alt="JMN" className="w-9 h-9 object-contain" />
     <div>
-      <p className="font-bold text-xs leading-tight text-[hsl(142_55%_28%)]">Jami' Masjid Noorani</p>
-      <p className="text-[9px] font-semibold tracking-widest uppercase text-[hsl(var(--muted-foreground))]">Admin Portal</p>
+      <p className="font-bold text-xs leading-tight text-[hsl(142_55%_28%)]">Jami&apos; Masjid Noorani</p>
+      <p className="text-[9px] font-semibold tracking-widest uppercase text-[hsl(var(--muted-foreground))]">
+        Admin Portal
+      </p>
     </div>
   </div>
 );
 
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+
 const Sidebar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login');
+  };
 
   return (
     <>
-      {/* Mobile top bar */}
+      {/* ── Mobile top bar ── */}
       <div
         className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 h-14 border-b shadow-sm bg-white"
         style={{ borderColor: 'hsl(var(--sidebar-border))' }}
       >
         <MobileBrand />
-        <button
-          onClick={() => setMobileOpen(true)}
-          className="p-2 rounded-lg hover:bg-[hsl(142_50%_95%)] transition-colors"
-          aria-label="Open menu"
-        >
-          <Menu size={20} className="text-[hsl(142_55%_28%)]" />
-        </button>
+
+        <div className="flex items-center gap-2">
+          {/* Sign-out always visible on mobile top bar */}
+          <button
+            onClick={handleSignOut}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-colors text-xs font-medium"
+            title="Sign out"
+          >
+            <LogOut size={13} />
+            <span className="hidden sm:inline">Sign Out</span>
+          </button>
+
+          {/* Hamburger */}
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="p-2 rounded-lg hover:bg-[hsl(142_50%_95%)] transition-colors"
+            aria-label="Open menu"
+          >
+            <Menu size={20} className="text-[hsl(142_55%_28%)]" />
+          </button>
+        </div>
       </div>
 
-      {/* Mobile drawer */}
+      {/* ── Mobile drawer ── */}
       {mobileOpen && (
-        <div className="md:hidden fixed inset-0 z-50 flex" onClick={() => setMobileOpen(false)}>
+        <div
+          className="md:hidden fixed inset-0 z-50 flex"
+          onClick={() => setMobileOpen(false)}
+        >
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           <div
             className="relative z-10 w-60 min-h-full flex flex-col shadow-2xl bg-white"
@@ -160,7 +213,7 @@ const Sidebar = () => {
         </div>
       )}
 
-      {/* Desktop sidebar */}
+      {/* ── Desktop sidebar ── */}
       <aside
         className="hidden md:flex w-52 min-h-screen flex-col shrink-0 border-r shadow-sm bg-white"
         style={{ borderColor: 'hsl(var(--sidebar-border))' }}
