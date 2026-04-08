@@ -54,12 +54,12 @@ const CATEGORY_COLORS: Record<string, { pill: string; dot: string }> = {
 // ─── Sortable Entry Row ───────────────────────────────────────────────────────
 
 const SortableEntryRow = ({
-  row, idx, onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry, deleting, toggling, isDragOverlay,
+  row, idx, onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry, onDuplicateEntry, deleting, toggling, isDragOverlay,
 }: {
   row: Dhikr; idx: number;
   onClickRow: (d: Dhikr) => void; onEditEntry: (d: Dhikr) => void;
   onDeleteEntry: (d: Dhikr) => void; onToggleActive: (d: Dhikr) => void;
-  onMoveEntry: (d: Dhikr) => void;
+  onMoveEntry: (d: Dhikr) => void; onDuplicateEntry: (d: Dhikr) => void;
   deleting: string | null; toggling: string | null; isDragOverlay?: boolean;
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: row.id });
@@ -130,6 +130,9 @@ const SortableEntryRow = ({
           <button onClick={() => onMoveEntry(row)} className="p-1.5 rounded hover:bg-purple-50 transition-colors" title="Move to group / prayer time">
             <ArrowRightLeft size={13} className="text-purple-500" />
           </button>
+          <button onClick={() => onDuplicateEntry(row)} className="p-1.5 rounded hover:bg-blue-50 transition-colors" title="Duplicate entry">
+            <Copy size={13} className="text-blue-500" />
+          </button>
           <button onClick={() => onEditEntry(row)} className="p-1.5 rounded hover:bg-accent/10 transition-colors" title="Edit">
             <Pencil size={13} style={{ color: 'hsl(var(--accent))' }} />
           </button>
@@ -157,7 +160,7 @@ const SortableEntryRow = ({
 const SortableGroupSection = ({
   groupName, groupMeta, items, allGroups = [],
   sectionPrayerTime,
-  onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry,
+  onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry, onDuplicateEntry,
   onEditGroup, onRenameGroup, onDescriptionSave,
   onAddToGroup, onDeleteGroup, onDuplicateGroup,
   onReassignPrayerTime,
@@ -167,7 +170,7 @@ const SortableGroupSection = ({
   allGroups?: AdhkarGroup[];
   onClickRow: (d: Dhikr) => void; onEditEntry: (d: Dhikr) => void;
   onDeleteEntry: (d: Dhikr) => void; onToggleActive: (d: Dhikr) => void;
-  onMoveEntry: (d: Dhikr) => void;
+  onMoveEntry: (d: Dhikr) => void; onDuplicateEntry: (d: Dhikr) => void;
   onEditGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onRenameGroup: (groupName: string, newName: string, meta: AdhkarGroup | undefined) => void;
   onDescriptionSave: (groupName: string, description: string, meta: AdhkarGroup | undefined) => void;
@@ -464,7 +467,7 @@ const SortableGroupSection = ({
                   key={row.id} row={row} idx={idx}
                   onClickRow={onClickRow} onEditEntry={onEditEntry}
                   onDeleteEntry={onDeleteEntry} onToggleActive={onToggleActive}
-                  onMoveEntry={onMoveEntry}
+                  onMoveEntry={onMoveEntry} onDuplicateEntry={onDuplicateEntry}
                   deleting={deleting} toggling={toggling}
                 />
               ))}
@@ -474,7 +477,7 @@ const SortableGroupSection = ({
                 <SortableEntryRow
                   row={entryDragActiveItem} idx={0}
                   onClickRow={() => {}} onEditEntry={() => {}} onDeleteEntry={() => {}} onToggleActive={() => {}}
-                  onMoveEntry={() => {}}
+                  onMoveEntry={() => {}} onDuplicateEntry={() => {}}
                   deleting={null} toggling={null} isDragOverlay
                 />
               )}
@@ -498,7 +501,7 @@ interface PrayerTimeSectionProps {
   allGroups: AdhkarGroup[];
   onClickRow: (d: Dhikr) => void; onEditEntry: (d: Dhikr) => void;
   onDeleteEntry: (d: Dhikr) => void; onToggleActive: (d: Dhikr) => void;
-  onMoveEntry: (d: Dhikr) => void;
+  onMoveEntry: (d: Dhikr) => void; onDuplicateEntry: (d: Dhikr) => void;
   onEditGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onRenameGroup: (groupName: string, newName: string, meta: AdhkarGroup | undefined) => void;
   onDescriptionSave: (groupName: string, description: string, meta: AdhkarGroup | undefined) => void;
@@ -513,7 +516,7 @@ interface PrayerTimeSectionProps {
 
 const PrayerTimeSection = ({
   cat, catItems, groupMap, allGroups,
-  onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry,
+  onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry, onDuplicateEntry,
   onEditGroup, onRenameGroup, onDescriptionSave,
   onAddToGroup, onDeleteGroup, onDuplicateGroup,
   onReassignPrayerTime,
@@ -603,7 +606,7 @@ const PrayerTimeSection = ({
                   sectionPrayerTime={cat}
                   onClickRow={onClickRow} onEditEntry={onEditEntry}
                   onDeleteEntry={onDeleteEntry} onToggleActive={onToggleActive}
-                  onMoveEntry={onMoveEntry}
+                  onMoveEntry={onMoveEntry} onDuplicateEntry={onDuplicateEntry}
                   onEditGroup={onEditGroup} onRenameGroup={onRenameGroup}
                   onDescriptionSave={onDescriptionSave} onAddToGroup={onAddToGroup}
                   onDeleteGroup={onDeleteGroup} onDuplicateGroup={onDuplicateGroup}
@@ -621,7 +624,7 @@ const PrayerTimeSection = ({
                 items={grouped[activeGroupName]} allGroups={[]}
                 sectionPrayerTime={cat}
                 onClickRow={() => {}} onEditEntry={() => {}} onDeleteEntry={() => {}} onToggleActive={() => {}}
-                onMoveEntry={() => {}}
+                onMoveEntry={() => {}} onDuplicateEntry={() => {}}
                 onEditGroup={() => {}} onRenameGroup={() => {}} onDescriptionSave={() => {}}
                 onAddToGroup={() => {}} onDeleteGroup={() => {}} onDuplicateGroup={() => {}}
                 onReassignPrayerTime={() => {}}
@@ -791,6 +794,44 @@ const Adhkar = () => {
 
   const handleRevert = (id: string) => {
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.id !== id));
+  };
+
+  // ─── Duplicate Entry ──────────────────────────────────────────────────────
+  const handleDuplicateEntry = async (row: Dhikr) => {
+    const { id: _id, created_at: _ca, updated_at: _ua, ...rest } = row;
+    const tempId = `temp-dup-entry-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const optimistic: Dhikr = {
+      ...rest,
+      id: tempId,
+      title: `${row.title} (copy)`,
+      display_order: (row.display_order ?? 0) + 1,
+      created_at: now,
+      updated_at: now,
+    };
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => {
+      const idx = old.findIndex((d) => d.id === row.id);
+      if (idx === -1) return [...old, optimistic];
+      const next = [...old];
+      next.splice(idx + 1, 0, optimistic);
+      return next;
+    });
+    try {
+      const real = await createDhikr({
+        ...rest,
+        title: `${row.title} (copy)`,
+        display_order: (row.display_order ?? 0) + 1,
+      });
+      queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+        old.map((d) => (d.id === tempId ? real : d))
+      );
+      toast.success(`Duplicated "${row.title}".`);
+    } catch (err) {
+      queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+        old.filter((d) => d.id !== tempId)
+      );
+      toast.error(`Failed to duplicate: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   // ─── Move to group ────────────────────────────────────────────────────────
@@ -1510,7 +1551,7 @@ const Adhkar = () => {
                     key={cat} cat={cat} catItems={catItems} groupMap={groupMap} allGroups={groupsList}
                     onClickRow={handleOpenDetail} onEditEntry={handleEdit}
                     onDeleteEntry={handleDelete} onToggleActive={handleToggleActive}
-                    onMoveEntry={handleOpenMove}
+                    onMoveEntry={handleOpenMove} onDuplicateEntry={handleDuplicateEntry}
                     onEditGroup={(name, meta) => {
                       if (meta?.id) {
                         const liveTime = catItems.find((d) => d.group_name === name)?.prayer_time;
