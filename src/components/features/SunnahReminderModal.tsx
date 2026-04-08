@@ -33,6 +33,7 @@ const EMPTY = {
   arabic: '',
   transliteration: '',
   translation: '',
+  urdu_translation: '',
   description: '',
   reference: '',
   count: '1',
@@ -81,6 +82,7 @@ const SunnahReminderModal = ({
       setForm({
         title: row.title, arabic_title: row.arabic_title ?? '', arabic: row.arabic ?? '',
         transliteration: row.transliteration ?? '', translation: row.translation ?? '',
+        urdu_translation: (row as SunnahReminder & { urdu_translation?: string | null }).urdu_translation ?? '',
         description: row.description ?? '', reference: row.reference ?? '',
         count: row.count, category: row.category, group_name: row.group_name ?? '',
         group_order: row.group_order ?? '', display_order: row.display_order ?? '',
@@ -106,6 +108,7 @@ const SunnahReminderModal = ({
     arabic: form.arabic?.trim() || null,
     transliteration: form.transliteration?.trim() || null,
     translation: form.translation?.trim() || null,
+    urdu_translation: form.urdu_translation?.trim() || null,
     description: form.description?.trim() || null,
     reference: form.reference?.trim() || null,
     count: form.count || '1',
@@ -206,6 +209,13 @@ const SunnahReminderModal = ({
             <Label htmlFor="sr-translation" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Translation</Label>
             <Textarea id="sr-translation" value={form.translation} onChange={(e) => set('translation', e.target.value)}
               placeholder="The Miswak is purifying for the mouth..." className="min-h-[56px] text-sm" />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="sr-urdu" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Urdu Translation</Label>
+            <Textarea id="sr-urdu" value={form.urdu_translation} onChange={(e) => set('urdu_translation', e.target.value)}
+              placeholder="اردو ترجمہ یہاں لکھیں…" dir="rtl" className="min-h-[60px] text-sm text-right"
+              style={{ fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2' }} />
           </div>
 
           <div className="space-y-1.5">

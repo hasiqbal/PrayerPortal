@@ -59,6 +59,7 @@ interface Template {
 interface ComposeData {
   title: string;
   body: string;
+  urduBody: string;
   imageUrl: string;
   linkUrl: string;
   audience: string;
@@ -125,7 +126,7 @@ const statusConfig: Record<string, { label: string; icon: React.ReactNode; class
 };
 
 const EMPTY_COMPOSE: ComposeData = {
-  title: '', body: '', imageUrl: '', linkUrl: '',
+  title: '', body: '', urduBody: '', imageUrl: '', linkUrl: '',
   audience: 'all', category: 'general', scheduledFor: '', scheduleEnabled: false,
 };
 
@@ -553,6 +554,21 @@ const ComposePanel = ({
               placeholder="e.g. Join us for Jumu'ah Salah at 1:15 PM. Doors open at 12:45 PM."
               rows={3}
               className="text-sm resize-none"
+            />
+          </div>
+
+          {/* Urdu body */}
+          <div className="space-y-1.5">
+            <Label htmlFor="notif-urdu-body" className="flex items-center gap-1.5">Urdu Message <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+            <Textarea
+              id="notif-urdu-body"
+              value={form.urduBody}
+              onChange={(e) => set('urduBody', e.target.value)}
+              placeholder="اردو پیغام یہاں لکھیں…"
+              dir="rtl"
+              rows={2}
+              className="text-sm resize-none text-right"
+              style={{ fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2' }}
             />
           </div>
 

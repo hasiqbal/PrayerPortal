@@ -188,6 +188,15 @@ const DetailPanel = ({ item, onClose, onEdit, onDelete }: { item: SunnahReminder
               {item.transliteration && <div><p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5"><AlignLeft size={12} /> Transliteration</p><p className="text-sm leading-relaxed italic text-foreground/80">{item.transliteration}</p></div>}
               {item.description && <div><p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5"><AlignLeft size={12} /> Description</p><p className="text-sm leading-relaxed text-foreground/85">{item.description}</p></div>}
               {item.translation && <div><p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5"><AlignLeft size={12} /> Translation</p><p className="text-sm leading-relaxed text-foreground/85">{item.translation}</p></div>}
+              {(item as SunnahReminder & { urdu_translation?: string | null }).urdu_translation && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5"><AlignLeft size={12} /> Urdu Translation</p>
+                  <p className="text-base leading-loose text-right" dir="rtl"
+                    style={{ color: 'hsl(var(--foreground) / 0.85)', fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2.2' }}>
+                    {(item as SunnahReminder & { urdu_translation?: string | null }).urdu_translation}
+                  </p>
+                </div>
+              )}
               {item.file_url && (
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5"><ImageIcon size={12} /> Attached Image</p>
@@ -266,6 +275,12 @@ const SortableEntryRow = ({ row, idx, onClickRow, onEdit, onDelete, onToggle, on
           {row.transliteration && <p className="text-sm text-muted-foreground italic leading-relaxed">{row.transliteration}</p>}
           {row.description && <p className="text-sm text-foreground/80 leading-relaxed">{row.description}</p>}
           {row.translation && <p className="text-sm text-foreground/75 leading-relaxed">{row.translation}</p>}
+          {(row as SunnahReminder & { urdu_translation?: string | null }).urdu_translation && (
+            <p className="text-base text-right leading-loose" dir="rtl"
+              style={{ fontFamily: 'serif', lineHeight: '2.2', color: 'hsl(var(--foreground) / 0.8)' }}>
+              {(row as SunnahReminder & { urdu_translation?: string | null }).urdu_translation}
+            </p>
+          )}
           {row.reference && <p className="text-xs text-muted-foreground">📚 {row.reference}</p>}
         </div>
       )}

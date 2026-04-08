@@ -126,7 +126,7 @@ const RichTextEditor = ({ content, onChange }: { content: string; onChange: (htm
   );
 };
 
-const EMPTY_FORM = { title: '', body: '', link_url: '', image_url: '', is_active: true, display_order: 0 };
+const EMPTY_FORM = { title: '', body: '', urdu_body: '', link_url: '', image_url: '', is_active: true, display_order: 0 };
 
 // ─── Phone Preview Modal ──────────────────────────────────────────────────────
 
@@ -307,7 +307,7 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
   const [lastItem, setLastItem] = useState(item);
   if (item !== lastItem) {
     setLastItem(item);
-    setForm(item ? { title: item.title, body: item.body ?? '', link_url: item.link_url ?? '', image_url: item.image_url ?? '', is_active: item.is_active, display_order: item.display_order } : { ...EMPTY_FORM });
+    setForm(item ? { title: item.title, body: item.body ?? '', urdu_body: (item as Announcement & { urdu_body?: string | null }).urdu_body ?? '', link_url: item.link_url ?? '', image_url: item.image_url ?? '', is_active: item.is_active, display_order: item.display_order } : { ...EMPTY_FORM });
   }
 
   const set = <K extends keyof typeof EMPTY_FORM>(k: K, v: (typeof EMPTY_FORM)[K]) => setForm((prev) => ({ ...prev, [k]: v }));
@@ -329,7 +329,7 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
     if (!form.title?.trim()) { toast.error('Title is required.'); return; }
     setSaving(true);
     try {
-      const payload: Partial<AnnouncementPayload> = { title: form.title.trim(), body: form.body?.trim() || null, link_url: form.link_url?.trim() || null, image_url: form.image_url?.trim() || null, is_active: form.is_active ?? true, display_order: Number(form.display_order) || 0 };
+      const payload: Partial<AnnouncementPayload> = { title: form.title.trim(), body: form.body?.trim() || null, urdu_body: (form as typeof EMPTY_FORM & { urdu_body?: string }).urdu_body?.trim() || null, link_url: form.link_url?.trim() || null, image_url: form.image_url?.trim() || null, is_active: form.is_active ?? true, display_order: Number(form.display_order) || 0 } as Partial<AnnouncementPayload>;
       const saved = item ? await updateAnnouncement(item.id, payload) : await createAnnouncement(payload);
       toast.success(item ? 'Announcement updated.' : 'Announcement created.');
       onSaved(saved);
@@ -361,8 +361,20 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
               <Input value={form.title ?? ''} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Ramadan Timetable Now Available" className="h-9" autoFocus />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sm font-medium">Description</Label>
+              <Label className="text-sm font-medium">Description (English)</Label>
               <RichTextEditor content={form.body ?? ''} onChange={(html) => set('body', html)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Urdu Description <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+              <textarea
+                value={(form as typeof EMPTY_FORM).urdu_body ?? ''}
+                onChange={(e) => setForm((prev) => ({ ...prev, urdu_body: e.target.value }))}
+                placeholder="اردو تفصیل یہاں لکھیں…"
+                dir="rtl"
+                rows={3}
+                className="w-full rounded-xl border border-[hsl(140_20%_88%)] bg-background px-4 py-3 text-sm text-right focus:outline-none focus:ring-2 focus:ring-[hsl(142_60%_35%/0.3)] focus:border-[hsl(142_50%_70%)] resize-none"
+                style={{ fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2' }}
+              />
             </div>
             <div className="space-y-2">
               <Label className="text-sm font-medium flex items-center gap-1.5"><ImagePlus size={13} className="text-muted-foreground" />Event Poster / Image<span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>

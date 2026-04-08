@@ -155,6 +155,7 @@ export interface Announcement {
   id: string;
   title: string;
   body: string | null;
+  urdu_body: string | null;
   link_url: string | null;
   image_url: string | null;
   is_active: boolean;
@@ -174,6 +175,7 @@ export interface SunnahReminder {
   arabic: string | null;
   transliteration: string | null;
   translation: string | null;
+  urdu_translation: string | null;
   description: string | null;
   reference: string | null;
   count: string;
