@@ -9,21 +9,9 @@ import masjidLogo from '@/assets/masjid-logo.png';
 import masjidPhoto from '@/assets/masjid-photo.png';
 import { useAuth } from '@/hooks/useAuth';
 
-// Credential check — falls back to localStorage override set by Settings page
-const CRED_KEY = '__jmn_admin_creds__';
-const DEFAULT_CREDENTIALS: Record<string, string> = { admin: 'admin' };
-
-function getCredentials(): Record<string, string> {
-  try {
-    const stored = localStorage.getItem(CRED_KEY);
-    if (stored) return JSON.parse(stored);
-  } catch { /* ignore */ }
-  return DEFAULT_CREDENTIALS;
-}
-
 const Login = () => {
   const navigate = useNavigate();
-  const { localLogin } = useAuth();
+  const { localLogin, dbLogin } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -35,19 +23,14 @@ const Login = () => {
     if (!password) { toast.error('Please enter your password.'); return; }
 
     setLoading(true);
+    const user = await dbLogin(username.trim(), password).catch((err: Error) => {
+      toast.error(err.message);
+      return null;
+    });
+    if (!user) { setLoading(false); return; }
 
-    // Simulate a brief loading state for UX
-    await new Promise((r) => setTimeout(r, 400));
-
-    const expectedPassword = getCredentials()[username.trim().toLowerCase()];
-    if (!expectedPassword || expectedPassword !== password) {
-      toast.error('Invalid username or password.');
-      setLoading(false);
-      return;
-    }
-
-    localLogin(username.trim());
-    toast.success(`Welcome, ${username}!`);
+    localLogin(user);
+    toast.success(`Welcome, ${user.name || user.username}!`);
     navigate('/', { replace: true });
   };
 

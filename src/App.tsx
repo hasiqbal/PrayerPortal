@@ -19,6 +19,7 @@ import Login from "./pages/Login";
 import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
+import UserManagement from "./pages/UserManagement";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,9 +34,16 @@ const queryClient = new QueryClient({
 });
 
 // ─── Protected Route ──────────────────────────────────────────────────────────
-// Redirects unauthenticated users to /login
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+// Redirects unauthenticated users to /login; adminOnly restricts to admin role
+const ProtectedRoute = ({
+  children,
+  adminOnly = false,
+}: {
+  children: React.ReactNode;
+  adminOnly?: boolean;
+}) => {
   const { user, loading } = useAuth();
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[hsl(140_30%_97%)]">
@@ -46,7 +54,22 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
       </div>
     );
   }
+
   if (!user) return <Navigate to="/login" replace />;
+
+  if (adminOnly && user.role !== 'admin') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[hsl(140_30%_97%)]">
+        <div className="text-center space-y-2 p-8">
+          <p className="text-lg font-bold text-[hsl(150_30%_18%)]">Access Restricted</p>
+          <p className="text-sm text-muted-foreground">
+            This section requires admin privileges.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return <>{children}</>;
 };
 
@@ -59,7 +82,7 @@ const AppRoutes = () => {
         {/* Public */}
         <Route path="/login" element={<Login />} />
 
-        {/* Protected portal routes */}
+        {/* Protected portal routes — all users */}
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/prayer-times" element={<ProtectedRoute><PrayerTimes /></ProtectedRoute>} />
         <Route path="/adhkar" element={<ProtectedRoute><Adhkar /></ProtectedRoute>} />
@@ -67,9 +90,12 @@ const AppRoutes = () => {
         <Route path="/sunnah-reminders" element={<ProtectedRoute><SunnahReminders /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
-        <Route path="/cloud-data" element={<ProtectedRoute><CloudData /></ProtectedRoute>} />
         <Route path="/excel-converter" element={<ProtectedRoute><ExcelConverter /></ProtectedRoute>} />
-        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+
+        {/* Admin-only routes */}
+        <Route path="/users" element={<ProtectedRoute adminOnly><UserManagement /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute adminOnly><Settings /></ProtectedRoute>} />
+        <Route path="/cloud-data" element={<ProtectedRoute adminOnly><CloudData /></ProtectedRoute>} />
 
         {/* Legacy redirects */}
         <Route path="/index" element={<Navigate to="/" replace />} />

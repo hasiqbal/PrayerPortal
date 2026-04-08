@@ -2,25 +2,27 @@ import { useState } from 'react';
 import {
   CalendarDays, BookOpen, Database, Bell, BellRing,
   Menu, X, Home, FileSpreadsheet, Star, BarChart2,
-  LogOut, Settings2,
+  LogOut, Settings2, Users,
 } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { usePermissions } from '@/hooks/usePermissions';
 import masjidLogo from '@/assets/masjid-logo.png';
 
 // ─── Navigation config ────────────────────────────────────────────────────────
 
-const NAV_ITEMS = [
-  { to: '/',                  icon: Home,            label: 'Dashboard'        },
-  { to: '/prayer-times',      icon: CalendarDays,    label: 'Prayer Times'     },
-  { to: '/adhkar',            icon: BookOpen,        label: 'Adhkar'           },
-  { to: '/announcements',     icon: Bell,            label: 'Announcements'    },
-  { to: '/sunnah-reminders',  icon: Star,            label: 'Sunnah Reminders' },
-  { to: '/notifications',     icon: BellRing,        label: 'Notifications'    },
-  { to: '/analytics',         icon: BarChart2,       label: 'Analytics'        },
-  { to: '/settings',          icon: Settings2,       label: 'Settings'         },
-  { to: '/cloud-data',        icon: Database,        label: 'Cloud Data'       },
-  { to: '/excel-converter',   icon: FileSpreadsheet, label: 'Excel → CSV'      },
+const ALL_NAV_ITEMS = [
+  { to: '/',                  icon: Home,            label: 'Dashboard',        adminOnly: false },
+  { to: '/prayer-times',      icon: CalendarDays,    label: 'Prayer Times',     adminOnly: false },
+  { to: '/adhkar',            icon: BookOpen,        label: 'Adhkar',           adminOnly: false },
+  { to: '/announcements',     icon: Bell,            label: 'Announcements',    adminOnly: false },
+  { to: '/sunnah-reminders',  icon: Star,            label: 'Sunnah Reminders', adminOnly: false },
+  { to: '/notifications',     icon: BellRing,        label: 'Notifications',    adminOnly: false },
+  { to: '/analytics',         icon: BarChart2,       label: 'Analytics',        adminOnly: false },
+  { to: '/users',             icon: Users,           label: 'User Management',  adminOnly: true  },
+  { to: '/settings',          icon: Settings2,       label: 'Settings',         adminOnly: true  },
+  { to: '/cloud-data',        icon: Database,        label: 'Cloud Data',       adminOnly: true  },
+  { to: '/excel-converter',   icon: FileSpreadsheet, label: 'Excel → CSV',      adminOnly: false },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -45,30 +47,28 @@ const LogoBrand = () => (
   </div>
 );
 
-const SignOutButton = ({
-  onSignOut,
-  compact = false,
-}: {
-  onSignOut: () => void;
-  compact?: boolean;
-}) => (
+const SignOutButton = ({ onSignOut }: { onSignOut: () => void }) => (
   <button
     onClick={onSignOut}
-    className={`flex items-center gap-2 rounded-lg border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-200 transition-colors font-medium ${
-      compact
-        ? 'px-2.5 py-1.5 text-xs'
-        : 'w-full px-3 py-2 text-xs'
-    }`}
+    className="flex items-center gap-2 rounded-lg border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-200 transition-colors font-medium w-full px-3 py-2 text-xs"
     title="Sign out"
   >
     <LogOut size={13} />
-    {!compact && 'Sign Out'}
+    Sign Out
   </button>
 );
 
 const SidebarFooter = ({ onNavClick }: { onNavClick?: () => void }) => {
   const { user, signOut } = useAuth();
+  const { role } = usePermissions();
   const navigate = useNavigate();
+
+  const ROLE_LABELS: Record<string, string> = { admin: 'Admin', editor: 'Editor', viewer: 'Viewer' };
+  const ROLE_COLORS: Record<string, string> = {
+    admin: 'text-purple-600 bg-purple-50 border-purple-200',
+    editor: 'text-blue-600 bg-blue-50 border-blue-200',
+    viewer: 'text-slate-500 bg-slate-50 border-slate-200',
+  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -84,11 +84,18 @@ const SidebarFooter = ({ onNavClick }: { onNavClick?: () => void }) => {
         <span className="text-[11px] font-semibold text-green-600">Live</span>
       </div>
 
-      {/* Logged in user */}
+      {/* Logged in user + role badge */}
       {user && (
-        <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate">
-          Signed in as <span className="font-semibold">{user.username}</span>
-        </p>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate">
+            <span className="font-semibold">{user.name || user.username}</span>
+          </p>
+          {role && (
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${ROLE_COLORS[role]}`}>
+              {ROLE_LABELS[role]}
+            </span>
+          )}
+        </div>
       )}
 
       {/* Sign out button — always visible */}
@@ -97,41 +104,51 @@ const SidebarFooter = ({ onNavClick }: { onNavClick?: () => void }) => {
   );
 };
 
-const NavContent = ({ onNavClick }: { onNavClick?: () => void }) => (
-  <div className="flex flex-col h-full">
-    <LogoBrand />
+const NavContent = ({ onNavClick }: { onNavClick?: () => void }) => {
+  const { isAdmin } = usePermissions();
+  const visibleItems = ALL_NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
 
-    <nav className="flex-1 px-2 pt-4 pb-2 space-y-0.5 overflow-y-auto">
-      <p className="text-[9px] font-bold uppercase tracking-[0.15em] px-3 mb-2 text-[hsl(var(--muted-foreground))]">
-        Management
-      </p>
-      {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={to === '/'}
-          onClick={onNavClick}
-          className={({ isActive }) =>
-            `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all relative ${
-              isActive
-                ? 'nav-active-glow bg-[hsl(142_50%_95%)] text-[hsl(142_60%_28%)]'
-                : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-accent-foreground))]'
-            }`
-          }
-        >
-          {({ isActive }) => (
-            <>
-              <Icon size={15} className={isActive ? 'text-[hsl(142_60%_32%)]' : 'opacity-60'} />
-              {label}
-            </>
-          )}
-        </NavLink>
-      ))}
-    </nav>
+  return (
+    <div className="flex flex-col h-full">
+      <LogoBrand />
 
-    <SidebarFooter onNavClick={onNavClick} />
-  </div>
-);
+      <nav className="flex-1 px-2 pt-4 pb-2 space-y-0.5 overflow-y-auto">
+        <p className="text-[9px] font-bold uppercase tracking-[0.15em] px-3 mb-2 text-[hsl(var(--muted-foreground))]">
+          Management
+        </p>
+        {visibleItems.map(({ to, icon: Icon, label, adminOnly }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === '/'}
+            onClick={onNavClick}
+            className={({ isActive }) =>
+              `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all relative ${
+                isActive
+                  ? 'nav-active-glow bg-[hsl(142_50%_95%)] text-[hsl(142_60%_28%)]'
+                  : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-accent-foreground))]'
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <Icon size={15} className={isActive ? 'text-[hsl(142_60%_32%)]' : 'opacity-60'} />
+                <span className="flex-1">{label}</span>
+                {adminOnly && (
+                  <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-purple-100 text-purple-600 uppercase tracking-wide">
+                    Admin
+                  </span>
+                )}
+              </>
+            )}
+          </NavLink>
+        ))}
+      </nav>
+
+      <SidebarFooter onNavClick={onNavClick} />
+    </div>
+  );
+};
 
 // ─── Mobile brand strip ───────────────────────────────────────────────────────
 

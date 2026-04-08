@@ -2,6 +2,7 @@
  * Authentication hook + context
  *
  * Features:
+ * - DB-backed login (portal_users table) with role-based access
  * - Local session persisted in localStorage
  * - 30-minute inactivity timeout with a 2-minute warning toast
  * - Auto-resets on any user interaction (mouse, keyboard, touch)
@@ -9,27 +10,35 @@
 
 import { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface LocalUser {
+export type UserRole = 'admin' | 'editor' | 'viewer';
+
+export interface LocalUser {
+  id: string;
   username: string;
+  name: string;
+  role: UserRole;
 }
 
 interface AuthState {
   user: LocalUser | null;
   loading: boolean;
-  localLogin: (username: string) => void;
+  localLogin: (user: LocalUser) => void;
   signOut: () => Promise<void>;
+  /** Check credential against DB and return user on success */
+  dbLogin: (username: string, password: string) => Promise<LocalUser>;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SESSION_KEY      = 'jmn_admin_session';
-const SESSION_TS_KEY   = 'jmn_admin_last_active';
-const TIMEOUT_MS       = 30 * 60 * 1000;   // 30 minutes
-const WARNING_BEFORE   =  2 * 60 * 1000;   // warn 2 minutes before
-const CHECK_INTERVAL   = 30 * 1000;         // check every 30 seconds
+const SESSION_KEY    = 'jmn_admin_session';
+const SESSION_TS_KEY = 'jmn_admin_last_active';
+const TIMEOUT_MS     = 30 * 60 * 1000;  // 30 minutes
+const WARNING_BEFORE =  2 * 60 * 1000;  // warn 2 minutes before
+const CHECK_INTERVAL = 30 * 1000;       // check every 30 seconds
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
@@ -38,6 +47,7 @@ export const AuthContext = createContext<AuthState>({
   loading: false,
   localLogin: () => {},
   signOut: async () => {},
+  dbLogin: async () => { throw new Error('AuthContext not mounted'); },
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -61,13 +71,11 @@ export function useAuthState(): AuthState {
     }
   }, []);
 
-  // Keep the ref up to date so the interval closure always has the latest version
   signOutRef.current = signOut;
 
   // ── Timestamp helpers ─────────────────────────────────────────────────────
   const touchActivity = useCallback(() => {
     localStorage.setItem(SESSION_TS_KEY, String(Date.now()));
-    // Dismiss any active warning when the user is active again
     if (warningToastId.current !== null) {
       toast.dismiss(warningToastId.current);
       warningToastId.current = null;
@@ -79,83 +87,101 @@ export function useAuthState(): AuthState {
     return ts ? parseInt(ts, 10) : Date.now();
   };
 
+  // ── DB login ──────────────────────────────────────────────────────────────
+  const dbLogin = useCallback(async (username: string, password: string): Promise<LocalUser> => {
+    const { data, error } = await supabase
+      .from('portal_users')
+      .select('id, username, name, role, is_active, password')
+      .eq('username', username.trim().toLowerCase())
+      .single();
+
+    if (error || !data) {
+      throw new Error('Invalid username or password.');
+    }
+    if (!data.is_active) {
+      throw new Error('Your account has been deactivated. Contact the administrator.');
+    }
+    if (data.password !== password) {
+      throw new Error('Invalid username or password.');
+    }
+
+    // Update last_login timestamp
+    supabase
+      .from('portal_users')
+      .update({ last_login: new Date().toISOString() })
+      .eq('id', data.id)
+      .then(() => {});
+
+    return {
+      id: data.id,
+      username: data.username,
+      name: data.name || data.username,
+      role: data.role as UserRole,
+    };
+  }, []);
+
+  // ── Local login (set session after dbLogin succeeds) ──────────────────────
+  const localLogin = useCallback((u: LocalUser) => {
+    setUser(u);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(u));
+    touchActivity();
+  }, [touchActivity]);
+
   // ── Restore session on mount ──────────────────────────────────────────────
   useEffect(() => {
     try {
       const stored = localStorage.getItem(SESSION_KEY);
       if (stored) {
         const parsed: LocalUser = JSON.parse(stored);
-        // Check if the stored session is already expired
         const idle = Date.now() - getLastActive();
         if (idle < TIMEOUT_MS) {
           setUser(parsed);
         } else {
-          // Session expired while the tab was closed — clear it silently
           localStorage.removeItem(SESSION_KEY);
           localStorage.removeItem(SESSION_TS_KEY);
         }
       }
     } catch {
-      // Corrupt storage — clear it
       localStorage.removeItem(SESSION_KEY);
     }
     setLoading(false);
   }, []);
 
-  // ── Activity listeners → reset inactivity timer ───────────────────────────
+  // ── Activity listeners ────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
-
     const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
     const handler = () => touchActivity();
     events.forEach((e) => window.addEventListener(e, handler, { passive: true }));
-    touchActivity(); // stamp on login
-
+    touchActivity();
     return () => events.forEach((e) => window.removeEventListener(e, handler));
   }, [user, touchActivity]);
 
   // ── Inactivity checker ────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
-
     const interval = setInterval(() => {
       const idle = Date.now() - getLastActive();
       const remaining = TIMEOUT_MS - idle;
-
       if (remaining <= 0) {
-        // Time's up — sign out
         clearInterval(interval);
         toast.error('Session expired due to inactivity. Please sign in again.', { duration: 5000 });
         signOutRef.current?.();
         return;
       }
-
       if (remaining <= WARNING_BEFORE && warningToastId.current === null) {
-        // Show 2-minute warning once
         warningToastId.current = toast.warning(
           'You will be signed out in 2 minutes due to inactivity.',
           {
             duration: WARNING_BEFORE,
             id: 'session-warning',
-            action: {
-              label: 'Stay signed in',
-              onClick: () => touchActivity(),
-            },
+            action: { label: 'Stay signed in', onClick: () => touchActivity() },
           }
         );
       }
     }, CHECK_INTERVAL);
-
     return () => clearInterval(interval);
   }, [user, touchActivity]);
 
-  // ── Login ─────────────────────────────────────────────────────────────────
-  const localLogin = useCallback((username: string) => {
-    const u: LocalUser = { username };
-    setUser(u);
-    localStorage.setItem(SESSION_KEY, JSON.stringify(u));
-    touchActivity();
-  }, [touchActivity]);
-
-  return { user, loading, localLogin, signOut };
+  return { user, loading, localLogin, signOut, dbLogin };
 }
