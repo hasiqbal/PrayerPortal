@@ -16,7 +16,6 @@ import ExcelConverter from "./pages/ExcelConverter";
 import SunnahReminders from "./pages/SunnahReminders";
 import Notifications from "./pages/Notifications";
 import Login from "./pages/Login";
-import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
 
@@ -89,7 +88,6 @@ const AppRoutes = () => {
         <Route path="/announcements" element={<ProtectedRoute><Announcements /></ProtectedRoute>} />
         <Route path="/sunnah-reminders" element={<ProtectedRoute><SunnahReminders /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
-        <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
         <Route path="/excel-converter" element={<ProtectedRoute><ExcelConverter /></ProtectedRoute>} />
 
         {/* Admin-only routes */}
