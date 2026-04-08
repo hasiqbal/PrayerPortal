@@ -307,7 +307,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
               )}
             </div>
             <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Prayer Time</Label>
+              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Default Prayer Time</Label>
               <select
                 value={form.prayer_time}
                 onChange={(e) => set('prayer_time', e.target.value)}
@@ -317,6 +317,9 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
                   <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
                 ))}
               </select>
+              <p className="text-[10px] text-muted-foreground leading-snug">
+                📌 A group can appear under <strong>multiple</strong> prayer time sections — individual entries control which section they appear in. This is just the default for new entries.
+              </p>
             </div>
           </div>
 

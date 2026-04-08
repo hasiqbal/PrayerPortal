@@ -1531,14 +1531,14 @@ const Adhkar = () => {
         open={moveDialogOpen}
         onOpenChange={(v) => { if (!moveSaving) { setMoveDialogOpen(v); if (!v) setMoveTarget(null); } }}
       >
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <ArrowRightLeft size={15} className="text-purple-500" />
               Move Entry
             </DialogTitle>
             <p className="text-xs text-muted-foreground pt-1">
-              Reassign <strong>"{moveTarget?.title}"</strong> to a different group or prayer time.
+              Reassign <strong>"{moveTarget?.title}"</strong> to a different prayer time or group.
             </p>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1565,13 +1565,58 @@ const Adhkar = () => {
               <datalist id="adhkar-move-group-list">
                 {groupsList.map((g) => <option key={g.id} value={g.name} />)}
               </datalist>
+              <p className="text-[10px] text-muted-foreground">
+                Tip: keeping the same group name moves <em>just this entry</em> — the group will appear under both prayer times.
+              </p>
             </div>
+
+            {/* Preview banner */}
+            {moveTarget && (() => {
+              const samePrayer = moveNewPrayerTime === moveTarget.prayer_time;
+              const sameGroup = (moveNewGroup.trim() || null) === (moveTarget.group_name || null);
+              if (samePrayer && sameGroup) return (
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  No change — entry is already here.
+                </div>
+              );
+              const fromLabel = PRAYER_TIME_LABELS[moveTarget.prayer_time] ?? moveTarget.prayer_time;
+              const toLabel = PRAYER_TIME_LABELS[moveNewPrayerTime] ?? moveNewPrayerTime;
+              const groupLabel = moveNewGroup.trim() || '(Ungrouped)';
+              const existsInTarget = adhkar.some(
+                (d) => d.group_name === moveNewGroup.trim() && d.prayer_time === moveNewPrayerTime && d.id !== moveTarget.id
+              );
+              return (
+                <div className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2.5 space-y-1">
+                  <p className="text-xs font-semibold text-purple-800">Preview</p>
+                  {!samePrayer && (
+                    <p className="text-xs text-purple-700">
+                      📍 Moves from <strong>{fromLabel}</strong> → <strong>{toLabel}</strong>
+                    </p>
+                  )}
+                  {!sameGroup && (
+                    <p className="text-xs text-purple-700">
+                      🗂 Moves to group <strong>{groupLabel}</strong>
+                    </p>
+                  )}
+                  {!samePrayer && !sameGroup === false && moveNewGroup.trim() && (
+                    existsInTarget
+                      ? <p className="text-xs text-purple-600">✓ Group &quot;{groupLabel}&quot; already exists under {toLabel} — entry will be added there.</p>
+                      : <p className="text-xs text-purple-600">✨ Group &quot;{groupLabel}&quot; will appear under {toLabel} for this entry.</p>
+                  )}
+                  {!samePrayer && moveNewGroup.trim() === (moveTarget.group_name ?? '') && (
+                    existsInTarget
+                      ? <p className="text-xs text-purple-600">✓ Group &quot;{moveNewGroup}&quot; already exists under {toLabel} — this entry joins it.</p>
+                      : <p className="text-xs text-emerald-700 font-medium">✨ &quot;{moveNewGroup}&quot; will appear under both {fromLabel} <em>and</em> {toLabel}.</p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => { setMoveDialogOpen(false); setMoveTarget(null); }} disabled={moveSaving}>Cancel</Button>
             <Button
               onClick={handleMoveConfirm}
-              disabled={moveSaving}
+              disabled={moveSaving || (moveNewPrayerTime === moveTarget?.prayer_time && (moveNewGroup.trim() || null) === (moveTarget?.group_name || null))}
               style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
             >
               {moveSaving ? 'Moving…' : 'Move Entry'}
