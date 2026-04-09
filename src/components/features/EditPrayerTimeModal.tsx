@@ -6,12 +6,25 @@ import { Label } from '@/components/ui/label';
 import { PrayerTime, PrayerTimeUpdate } from '@/types';
 import { updatePrayerTime } from '@/lib/api';
 import { toast } from 'sonner';
-import { Minus, Plus, Clock } from 'lucide-react';
+import { Minus, Plus, Clock, Moon } from 'lucide-react';
+import { gregorianToHijri } from '@/lib/dateUtils';
 
 interface EditPrayerTimeModalProps {
   row: PrayerTime | null;
+  year: number;
   onClose: () => void;
   onSaved: (updated: PrayerTime) => void;
+}
+
+const HIJRI_MONTHS_FULL = [
+  'Muharram', 'Safar', "Rabi' al-Awwal", "Rabi' al-Akhir",
+  'Jumada al-Ula', 'Jumada al-Akhira', 'Rajab', "Sha'ban",
+  'Ramadan', 'Shawwal', "Dhu al-Qi'dah", 'Dhu al-Hijjah',
+];
+
+function computeHijriDateString(year: number, month: number, day: number): string {
+  const h = gregorianToHijri(year, month, day);
+  return `${h.day} ${HIJRI_MONTHS_FULL[h.month - 1] ?? h.monthName} ${h.year} AH`;
 }
 
 const FIELDS: { key: keyof PrayerTimeUpdate; label: string; group: string }[] = [
@@ -95,7 +108,7 @@ const MONTHS = [
   'July','August','September','October','November','December',
 ];
 
-const EditPrayerTimeModal = ({ row, onClose, onSaved }: EditPrayerTimeModalProps) => {
+const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModalProps) => {
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
@@ -105,12 +118,20 @@ const EditPrayerTimeModal = ({ row, onClose, onSaved }: EditPrayerTimeModalProps
       FIELDS.forEach(({ key }) => {
         initial[key] = (row[key as keyof PrayerTime] as string | null) ?? '';
       });
+      // Pre-fill hijri_date from stored value or compute it
+      initial['hijri_date'] = row.hijri_date ?? '';
       setForm(initial);
     }
   }, [row]);
 
   const handleChange = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const autoFillHijri = () => {
+    if (!row) return;
+    const computed = computeHijriDateString(year, row.month, row.day);
+    setForm((prev) => ({ ...prev, hijri_date: computed }));
   };
 
   const handleSave = async () => {
@@ -122,6 +143,9 @@ const EditPrayerTimeModal = ({ row, onClose, onSaved }: EditPrayerTimeModalProps
         const val = (form[key] ?? '').trim();
         (payload as Record<string, string | null>)[key] = val === '' ? null : val;
       });
+      // Include hijri_date
+      const hijriVal = (form['hijri_date'] ?? '').trim();
+      (payload as Record<string, string | null>)['hijri_date'] = hijriVal === '' ? null : hijriVal;
       const result = await updatePrayerTime(row.id, payload);
       const updated = result[0] ?? { ...row, ...payload };
       toast.success(`Day ${row.day} updated successfully`);
@@ -190,6 +214,36 @@ const EditPrayerTimeModal = ({ row, onClose, onSaved }: EditPrayerTimeModalProps
               {jumuahFields.map(({ key, label }) => (
                 <TimeField key={key} label={label} value={form[key] ?? ''} onChange={(v) => handleChange(key, v)} />
               ))}
+            </div>
+          </div>
+
+          {/* Hijri date */}
+          <div className="rounded-xl border border-[hsl(210_30%_88%)] overflow-hidden">
+            <div className="px-4 py-2.5 bg-[hsl(210_30%_97%)] border-b border-[hsl(210_30%_88%)] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Moon size={13} className="text-[#7c3aed]" />
+                <p className="text-xs font-bold text-[#7c3aed] uppercase tracking-wider">Hijri Date</p>
+                <span className="text-[10px] text-muted-foreground normal-case font-normal">stored in database</span>
+              </div>
+              <button
+                type="button"
+                onClick={autoFillHijri}
+                className="text-[10px] font-semibold text-[#7c3aed] hover:underline flex items-center gap-1"
+              >
+                Auto-fill
+              </button>
+            </div>
+            <div className="px-4 py-3">
+              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)] mb-1.5 block">Hijri Date String</Label>
+              <Input
+                value={form['hijri_date'] ?? ''}
+                onChange={(e) => handleChange('hijri_date', e.target.value)}
+                placeholder="e.g. 21 Dhu al-Hijjah 1447 AH"
+                className="font-mono text-sm h-9 border-[hsl(210_30%_80%)] focus:border-[#7c3aed]"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1.5">
+                This value is stored in the database and sent directly to the mobile app. Use "Auto-fill" to compute from the Gregorian date.
+              </p>
             </div>
           </div>
         </div>

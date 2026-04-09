@@ -10,8 +10,21 @@ import { PrayerTime } from '@/types';
 import { toast } from 'sonner';
 import {
   Loader2, AlertCircle, RefreshCw,
-  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays,
+  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon,
 } from 'lucide-react';
+import { gregorianToHijri } from '@/lib/dateUtils';
+
+const HIJRI_MONTHS_FULL = [
+  'Muharram', 'Safar', "Rabi' al-Awwal", "Rabi' al-Akhir",
+  'Jumada al-Ula', 'Jumada al-Akhira', 'Rajab', "Sha'ban",
+  'Ramadan', 'Shawwal', "Dhu al-Qi'dah", 'Dhu al-Hijjah',
+];
+
+function computeHijriStr(year: number, month: number, day: number, offset = 0): string {
+  const shifted = new Date(year, month - 1, day + offset);
+  const h = gregorianToHijri(shifted.getFullYear(), shifted.getMonth() + 1, shifted.getDate());
+  return `${h.day} ${HIJRI_MONTHS_FULL[h.month - 1] ?? h.monthName} ${h.year} AH`;
+}
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -188,6 +201,7 @@ const PrayerTimes = () => {
   const [csvModal,      setCsvModal]      = useState(false);
   const [csvPreload,    setCsvPreload]    = useState<string | undefined>(undefined);
   const [hijriOffset,   setHijriOffset]   = useState<number>(0);
+  const [populatingHijri, setPopulatingHijri] = useState(false);
   const [jumpInput,     setJumpInput]     = useState('');
   const [highlightDay,  setHighlightDay]  = useState<number | null>(null);
   const [searchParams, setSearchParams]   = useSearchParams();
@@ -201,6 +215,34 @@ const PrayerTimes = () => {
   }, [searchParams, setSearchParams]);
 
   const changeOffset = (delta: number) => { setHijriOffset((prev) => { const next = Math.max(-30, Math.min(30, prev + delta)); saveOffsetToDb(next); return next; }); };
+
+  // Bulk-populate hijri_date for all rows in the current month
+  const handlePopulateHijriDates = async () => {
+    if (!data || data.length === 0) { toast.error('No prayer times loaded for this month.'); return; }
+    setPopulatingHijri(true);
+    try {
+      const updates = data.map((row) => ({
+        id: row.id,
+        hijri_date: computeHijriStr(selectedYear, selectedMonth, row.day, hijriOffset),
+      }));
+      const errors: string[] = [];
+      for (const upd of updates) {
+        const { error } = await supabaseAdmin.from('prayer_times').update({ hijri_date: upd.hijri_date }).eq('id', upd.id);
+        if (error) errors.push(`Day ${upd.id}: ${error.message}`);
+      }
+      if (errors.length > 0) {
+        toast.error(`${errors.length} rows failed to update.`);
+      } else {
+        toast.success(`Hijri dates populated for ${updates.length} days in ${MONTHS_FULL[selectedMonth - 1]}.`);
+        queryClient.invalidateQueries({ queryKey: ['prayer_times', selectedMonth] });
+      }
+    } catch (e) {
+      toast.error('Failed to populate Hijri dates.');
+      console.error(e);
+    } finally {
+      setPopulatingHijri(false);
+    }
+  };
 
   // Load hijri offset from DB on mount
   useEffect(() => {
@@ -298,6 +340,16 @@ const PrayerTimes = () => {
               <Button variant="outline" size="sm" onClick={() => setJumuahModal(true)} className="gap-2 border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]">
                 <CalendarCheck size={14} /> Set Jumu'ah
               </Button>
+              <Button
+                variant="outline" size="sm"
+                onClick={handlePopulateHijriDates}
+                disabled={populatingHijri || !data || data.length === 0}
+                className="gap-2 border-[hsl(270_50%_75%)] text-[#7c3aed] hover:bg-[hsl(270_50%_97%)]"
+                title={`Auto-fill Hijri dates for all ${data?.length ?? 0} days in ${MONTHS_FULL[selectedMonth - 1]}`}
+              >
+                {populatingHijri ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
+                {populatingHijri ? 'Filling…' : 'Fill Hijri'}
+              </Button>
               <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
                 <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} /> Refresh
               </Button>
@@ -392,7 +444,7 @@ const PrayerTimes = () => {
       </main>
 
       <JumuahYearModal open={jumuahModal} onClose={() => setJumuahModal(false)} year={selectedYear} queryClient={queryClient} />
-      <EditPrayerTimeModal row={editingRow} onClose={() => setEditingRow(null)} onSaved={handleSaved} />
+      <EditPrayerTimeModal row={editingRow} year={selectedYear} onClose={() => setEditingRow(null)} onSaved={handleSaved} />
       <CsvImportModal open={csvModal} onClose={() => { setCsvModal(false); setCsvPreload(undefined); }}
         month={selectedMonth} monthName={MONTHS_FULL[selectedMonth - 1]} year={selectedYear}
         onImported={handleCsvImported} preloadedCsv={csvPreload} />

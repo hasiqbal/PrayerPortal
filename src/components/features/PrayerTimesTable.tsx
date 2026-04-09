@@ -225,7 +225,7 @@ const MobileRow = ({
           <div className="col-span-2 flex items-center justify-between pt-1 border-t border-[hsl(140_20%_88%)]">
             <span className="text-[10px] font-semibold text-muted-foreground">Hijri</span>
             <span className="text-xs font-medium text-foreground/70">
-              {info.hijri.day} {info.hijri.monthName} {info.hijri.year} AH
+              {row.hijri_date ?? `${info.hijri.day} ${info.hijri.monthName} ${info.hijri.year} AH`}
             </span>
           </div>
           {info.isClockChange && (
@@ -381,16 +381,22 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
                     {/* Hijri */}
                     <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)]">
                       <div className="flex flex-col leading-tight">
-                        <span className="text-[11px] font-semibold text-foreground/75 tabular-nums whitespace-nowrap">
-                          {info.hijri.day} {info.hijri.monthName.split(' ').slice(0, 2).join(' ')}
-                        </span>
-                        <span className="text-[9px] text-muted-foreground tabular-nums">
-                          {info.hijri.year} AH
-                        </span>
-                        {hijriOffset !== 0 && (
-                          <span className="text-[8px] text-amber-500 font-medium">
-                            {hijriOffset > 0 ? `+${hijriOffset}d` : `${hijriOffset}d`}
-                          </span>
+                        {row.hijri_date ? (
+                          <span className="text-[11px] font-semibold text-foreground/75 whitespace-nowrap">{row.hijri_date}</span>
+                        ) : (
+                          <>
+                            <span className="text-[11px] font-semibold text-foreground/75 tabular-nums whitespace-nowrap">
+                              {info.hijri.day} {info.hijri.monthName.split(' ').slice(0, 2).join(' ')}
+                            </span>
+                            <span className="text-[9px] text-muted-foreground tabular-nums">
+                              {info.hijri.year} AH
+                            </span>
+                            {hijriOffset !== 0 && (
+                              <span className="text-[8px] text-amber-500 font-medium">
+                                {hijriOffset > 0 ? `+${hijriOffset}d` : `${hijriOffset}d`}
+                              </span>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>

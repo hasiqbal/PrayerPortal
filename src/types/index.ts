@@ -3,6 +3,7 @@ export interface PrayerTime {
   month: number;
   day: number;
   date: string;
+  hijri_date: string | null;
   fajr: string;
   fajr_jamat: string | null;
   sunrise: string;
