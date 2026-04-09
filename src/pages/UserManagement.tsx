@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import Sidebar from '@/components/layout/Sidebar';
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 
@@ -149,7 +149,7 @@ const UserModal = ({
       };
 
       if (isEdit) {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
           .from('portal_users')
           .update(payload)
           .eq('id', user!.id)
@@ -167,7 +167,7 @@ const UserModal = ({
         toast.success(`"${form.name.trim()}" updated${changes.length ? ` (${changes.join(', ')})` : ''}.`);
         onSaved(data as PortalUser);
       } else {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
           .from('portal_users')
           .insert({ ...payload, password: form.password, created_by: currentAdminUsername })
           .select()
@@ -605,7 +605,7 @@ const UserManagement = () => {
   const { data: users = [], isFetching: usersFetching, refetch: refetchUsers } = useQuery({
     queryKey: ['portal-users'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('portal_users')
         .select('*')
         .order('created_at', { ascending: false });
@@ -617,7 +617,7 @@ const UserManagement = () => {
   const { data: logs = [], isFetching: logsFetching, refetch: refetchLogs } = useQuery({
     queryKey: ['activity-log'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('activity_log')
         .select('*')
         .order('created_at', { ascending: false })
@@ -665,7 +665,7 @@ const UserManagement = () => {
       old.map((x) => (x.id === u.id ? { ...x, role } : x))
     );
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('portal_users')
         .update({ role })
         .eq('id', u.id)
@@ -694,7 +694,7 @@ const UserManagement = () => {
       old.map((x) => (x.id === u.id ? { ...x, is_active: newActive } : x))
     );
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('portal_users')
         .update({ is_active: newActive })
         .eq('id', u.id)
@@ -721,7 +721,7 @@ const UserManagement = () => {
     setDeleting(u.id);
     queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) => old.filter((x) => x.id !== u.id));
     try {
-      const { error } = await supabase.from('portal_users').delete().eq('id', u.id);
+      const { error } = await supabaseAdmin.from('portal_users').delete().eq('id', u.id);
       if (error) throw error;
       toast.success(`User "${u.name}" deleted.`);
     } catch {
