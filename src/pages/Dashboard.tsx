@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import Sidebar from '@/components/layout/Sidebar';
@@ -8,6 +8,7 @@ import {
   Star, BellRing, Timer, Sunrise, Sunset, Moon,
 } from 'lucide-react';
 import masjidPhoto from '@/assets/masjid-photo.png';
+import { supabaseAdmin } from '@/lib/supabase';
 import masjidLogo from '@/assets/masjid-logo.png';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -413,24 +414,27 @@ const StatCard = ({
 
 // ─── Hijri Date Display ───────────────────────────────────────────────────────
 
-function getSimpleHijriDate(): string {
+const HIJRI_MONTHS = [
+  'Muharram', 'Safar', "Rabi' al-Awwal", "Rabi' al-Akhir",
+  'Jumada al-Ula', 'Jumada al-Akhira', 'Rajab', "Sha'ban",
+  'Ramadan', 'Shawwal', "Dhu al-Qi'dah", 'Dhu al-Hijjah',
+];
+
+function getSimpleHijriDate(offsetDays = 0): string {
   // Simple approximate Hijri date for display purposes
   // Based on epoch difference; accurate within ±1 day
   const gregorianDate = new Date();
+  // Apply offset by shifting the date used for calculation
+  gregorianDate.setDate(gregorianDate.getDate() + offsetDays);
   const epochDiff = 1948438.5; // Julian day of Hijri epoch
   const jd = gregorianDate.getTime() / 86400000 + 2440587.5;
   const daysSinceEpoch = jd - epochDiff;
   const yearsSinceEpoch = daysSinceEpoch / 354.367;
   const hijriYear = Math.floor(yearsSinceEpoch) + 1;
   const daysInYear = (yearsSinceEpoch - Math.floor(yearsSinceEpoch)) * 354.367;
-  const hijriMonths = [
-    'Muharram', 'Safar', "Rabi' al-Awwal", "Rabi' al-Akhir",
-    'Jumada al-Ula', 'Jumada al-Akhira', 'Rajab', "Sha'ban",
-    'Ramadan', 'Shawwal', "Dhu al-Qi'dah", 'Dhu al-Hijjah',
-  ];
   const monthIdx = Math.min(Math.floor(daysInYear / 29.5), 11);
   const hijriDay = Math.floor(daysInYear % 29.5) + 1;
-  return `${hijriDay} ${hijriMonths[monthIdx]} ${hijriYear} AH`;
+  return `${hijriDay} ${HIJRI_MONTHS[monthIdx]} ${hijriYear} AH`;
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -441,6 +445,30 @@ const Dashboard = () => {
   const day = now.getDate();
   const isFriday = now.getDay() === 5;
   const dayName = DAYS[now.getDay()];
+
+  // ── Hijri offset from DB ───────────────────────────────────────────────────
+  const [hijriOffset, setHijriOffset] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem('hijri_offset') ?? '0', 10) || 0; } catch { return 0; }
+  });
+  const hijriOffsetFetched = useRef(false);
+  useEffect(() => {
+    if (hijriOffsetFetched.current) return;
+    hijriOffsetFetched.current = true;
+    supabaseAdmin
+      .from('masjid_settings')
+      .select('value')
+      .eq('key', 'hijri_offset')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.value !== null && data?.value !== undefined) {
+          const n = parseInt(data.value, 10);
+          if (!isNaN(n)) {
+            setHijriOffset(n);
+            try { localStorage.setItem('hijri_offset', String(n)); } catch { /* noop */ }
+          }
+        }
+      });
+  }, []);
 
   const { data: prayerTimes = [] } = useQuery({
     queryKey: ['prayer_times', month],
@@ -489,7 +517,7 @@ const Dashboard = () => {
       color: r.color,
     }));
 
-  const hijriDate = getSimpleHijriDate();
+  const hijriDate = getSimpleHijriDate(hijriOffset);
 
   return (
     <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
