@@ -14,11 +14,12 @@ import { PrayerTime, HijriCalendarEntry } from '@/types';
 import { toast } from 'sonner';
 import {
   Loader2, AlertCircle, RefreshCw,
-  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon, Download, Database, CheckCircle2, XCircle, Zap,
+  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon, Download, Database, CheckCircle2, XCircle, Zap, Star,
 } from 'lucide-react';
 import { isBST } from '@/lib/dateUtils';
 import { supabaseAdmin } from '@/lib/supabase';
 import { SolarTimesCard } from '@/pages/Dashboard';
+import EidTimesModal, { fetchEidPrayers, EidPrayer } from '@/components/features/EidTimesModal';
 
 // ─── External Supabase config (same as supabase.ts) ───────────────────────────
 const EXT_URL         = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
@@ -497,6 +498,8 @@ const PrayerTimes = () => {
   const [searchParams,    setSearchParams]    = useSearchParams();
   const [schemaError,     setSchemaError]     = useState<string | null>(null);
   const [schemaChecked,   setSchemaChecked]   = useState(false);
+  const [eidModal,        setEidModal]        = useState(false);
+  const [eidPrayers,      setEidPrayers]      = useState<EidPrayer[]>([]);
 
   // Hijri calendar data: day → entry
   const [hijriCalendar, setHijriCalendar] = useState<Map<number, HijriCalendarEntry>>(new Map());
@@ -542,6 +545,11 @@ const PrayerTimes = () => {
       setHijriLoading(false);
     });
   }, [selectedYear, selectedMonth, schemaChecked, schemaError]);
+
+  // Load Eid prayers whenever year changes
+  useEffect(() => {
+    fetchEidPrayers(selectedYear).then(setEidPrayers);
+  }, [selectedYear]);
 
   const changeOffset = (delta: number) => {
     setHijriOffset((prev) => {
@@ -1001,6 +1009,16 @@ const PrayerTimes = () => {
                 <CalendarCheck size={14} /> Set Jumu'ah
               </Button>
 
+              {/* Eid Times */}
+              <Button
+                variant="outline" size="sm"
+                onClick={() => setEidModal(true)}
+                className="gap-2 border-[hsl(38_70%_70%)] bg-[hsl(38_80%_97%)] text-[hsl(38_60%_28%)] hover:bg-[hsl(38_80%_93%)] font-semibold"
+                title={`Manage Eid al-Fitr and Eid al-Adha prayer times for ${selectedYear}`}
+              >
+                <Star size={14} /> Eid Times
+              </Button>
+
               {/* Offset-changed warning */}
               {offsetDirty && hijriCalendar.size > 0 && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 animate-pulse">
@@ -1151,6 +1169,7 @@ const PrayerTimes = () => {
                 year={selectedYear}
                 hijriOffset={hijriOffset}
                 hijriCalendar={hijriCalendar}
+                eidPrayers={eidPrayers}
                 onEdit={setEditingRow}
                 highlightDay={highlightDay}
               />
@@ -1185,6 +1204,12 @@ const PrayerTimes = () => {
         onClose={() => setEditingRow(null)}
         onSaved={handleSaved}
         onHijriSaved={handleHijriSaved}
+      />
+      <EidTimesModal
+        open={eidModal}
+        onClose={() => setEidModal(false)}
+        year={selectedYear}
+        onSaved={() => fetchEidPrayers(selectedYear).then(setEidPrayers)}
       />
       <CsvImportModal
         open={csvModal}
