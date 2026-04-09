@@ -27,6 +27,24 @@ function computeHijriDateString(year: number, month: number, day: number): strin
   return `${h.day} ${HIJRI_MONTHS_FULL[h.month - 1] ?? h.monthName} ${h.year} AH`;
 }
 
+async function fetchHijriFromApi(year: number, month: number, day: number): Promise<{ hijri: string; gregorian: string } | null> {
+  try {
+    const gDay   = String(day).padStart(2, '0');
+    const gMonth = String(month).padStart(2, '0');
+    const res = await fetch(`https://api.aladhan.com/v1/gToH?date=${gDay}-${gMonth}-${year}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    const h = json?.data?.hijri;
+    if (!h) return null;
+    return {
+      hijri: `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
+      gregorian: `${gDay}/${gMonth}/${year}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 const FIELDS: { key: keyof PrayerTimeUpdate; label: string; group: string }[] = [
   { key: 'fajr',          label: 'Fajr',          group: 'start' },
   { key: 'fajr_jamat',    label: 'Fajr Jamaat',    group: 'jamat' },
@@ -111,6 +129,7 @@ const MONTHS = [
 const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModalProps) => {
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [fillingHijri, setFillingHijri] = useState(false);
 
   useEffect(() => {
     if (row) {
@@ -120,6 +139,8 @@ const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModa
       });
       // Pre-fill hijri_date from stored value or compute it
       initial['hijri_date'] = row.hijri_date ?? '';
+      // Pre-fill gregorian date
+      initial['date'] = row.date ?? '';
       setForm(initial);
     }
   }, [row]);
@@ -128,10 +149,18 @@ const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModa
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const autoFillHijri = () => {
+  const autoFillHijri = async () => {
     if (!row) return;
-    const computed = computeHijriDateString(year, row.month, row.day);
-    setForm((prev) => ({ ...prev, hijri_date: computed }));
+    setFillingHijri(true);
+    const api = await fetchHijriFromApi(year, row.month, row.day);
+    if (api) {
+      setForm((prev) => ({ ...prev, hijri_date: api.hijri, date: api.gregorian }));
+    } else {
+      // Fallback to local calculation
+      const computed = computeHijriDateString(year, row.month, row.day);
+      setForm((prev) => ({ ...prev, hijri_date: computed }));
+    }
+    setFillingHijri(false);
   };
 
   const handleSave = async () => {
@@ -143,9 +172,11 @@ const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModa
         const val = (form[key] ?? '').trim();
         (payload as Record<string, string | null>)[key] = val === '' ? null : val;
       });
-      // Include hijri_date
+      // Include hijri_date and date (Gregorian)
       const hijriVal = (form['hijri_date'] ?? '').trim();
       (payload as Record<string, string | null>)['hijri_date'] = hijriVal === '' ? null : hijriVal;
+      const dateVal = (form['date'] ?? '').trim();
+      (payload as Record<string, string | null>)['date'] = dateVal === '' ? null : dateVal;
       const result = await updatePrayerTime(row.id, payload);
       const updated = result[0] ?? { ...row, ...payload };
       toast.success(`Day ${row.day} updated successfully`);
@@ -228,9 +259,10 @@ const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModa
               <button
                 type="button"
                 onClick={autoFillHijri}
-                className="text-[10px] font-semibold text-[#7c3aed] hover:underline flex items-center gap-1"
+                disabled={fillingHijri}
+                className="text-[10px] font-semibold text-[#7c3aed] hover:underline flex items-center gap-1 disabled:opacity-50"
               >
-                Auto-fill
+                {fillingHijri ? 'Fetching…' : 'Auto-fill (API)'}
               </button>
             </div>
             <div className="px-4 py-3">
@@ -242,7 +274,7 @@ const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModa
                 className="font-mono text-sm h-9 border-[hsl(210_30%_80%)] focus:border-[#7c3aed]"
               />
               <p className="text-[10px] text-muted-foreground mt-1.5">
-                This value is stored in the database and sent directly to the mobile app. Use "Auto-fill" to compute from the Gregorian date.
+                Fetched from Aladhan API (accurate Islamic calendar) and stored in the database. "Auto-fill" calls the API; falls back to local calculation if offline.
               </p>
             </div>
           </div>

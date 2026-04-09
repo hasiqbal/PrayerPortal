@@ -25,6 +25,30 @@ function computeHijriStr(year: number, month: number, day: number, offset = 0): 
   const h = gregorianToHijri(shifted.getFullYear(), shifted.getMonth() + 1, shifted.getDate());
   return `${h.day} ${HIJRI_MONTHS_FULL[h.month - 1] ?? h.monthName} ${h.year} AH`;
 }
+
+/**
+ * Fetch the accurate Hijri date from the Aladhan API.
+ * Returns a formatted string like "14 Rajab 1447 AH", or null on failure.
+ */
+async function fetchHijriFromApi(year: number, month: number, day: number, offset = 0): Promise<{ hijri: string; gregorian: string } | null> {
+  try {
+    const shifted = new Date(year, month - 1, day + offset);
+    const gDay   = String(shifted.getDate()).padStart(2, '0');
+    const gMonth = String(shifted.getMonth() + 1).padStart(2, '0');
+    const gYear  = shifted.getFullYear();
+    const gregStr = `${gDay}-${gMonth}-${gYear}`;
+    const res = await fetch(`https://api.aladhan.com/v1/gToH?date=${gregStr}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    const h = json?.data?.hijri;
+    if (!h) return null;
+    const hijriStr = `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`;
+    const gregorianStr = `${gDay}/${gMonth}/${gYear}`;
+    return { hijri: hijriStr, gregorian: gregorianStr };
+  } catch {
+    return null;
+  }
+}
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -216,28 +240,41 @@ const PrayerTimes = () => {
 
   const changeOffset = (delta: number) => { setHijriOffset((prev) => { const next = Math.max(-30, Math.min(30, prev + delta)); saveOffsetToDb(next); return next; }); };
 
-  // Bulk-populate hijri_date for all rows in the current month
+  // Bulk-populate hijri_date + date (Gregorian) for all rows in the current month
   const handlePopulateHijriDates = async () => {
     if (!data || data.length === 0) { toast.error('No prayer times loaded for this month.'); return; }
     setPopulatingHijri(true);
     try {
-      const updates = data.map((row) => ({
-        id: row.id,
-        hijri_date: computeHijriStr(selectedYear, selectedMonth, row.day, hijriOffset),
-      }));
+      toast.info(`Fetching Hijri dates from Aladhan API for ${data.length} days…`, { duration: 4000 });
+
+      // Fetch all dates in parallel from API (with per-day fallback to local calc)
+      const resolved = await Promise.all(
+        data.map(async (row) => {
+          const api = await fetchHijriFromApi(selectedYear, selectedMonth, row.day, hijriOffset);
+          const hijriStr  = api?.hijri    ?? computeHijriStr(selectedYear, selectedMonth, row.day, hijriOffset);
+          const gregStr   = api?.gregorian ?? `${String(row.day).padStart(2,'0')}/${String(selectedMonth).padStart(2,'0')}/${selectedYear}`;
+          return { id: row.id, hijri_date: hijriStr, date: gregStr };
+        })
+      );
+
       const errors: string[] = [];
-      for (const upd of updates) {
-        const { error } = await supabaseAdmin.from('prayer_times').update({ hijri_date: upd.hijri_date }).eq('id', upd.id);
+      for (const upd of resolved) {
+        const { error } = await supabaseAdmin
+          .from('prayer_times')
+          .update({ hijri_date: upd.hijri_date, date: upd.date })
+          .eq('id', upd.id);
         if (error) errors.push(`Day ${upd.id}: ${error.message}`);
       }
+
       if (errors.length > 0) {
         toast.error(`${errors.length} rows failed to update.`);
       } else {
-        toast.success(`Hijri dates populated for ${updates.length} days in ${MONTHS_FULL[selectedMonth - 1]}.`);
+        const apiCount = resolved.filter((_, i) => !!i).length;
+        toast.success(`✓ Dates saved for ${resolved.length} days in ${MONTHS_FULL[selectedMonth - 1]} (via Aladhan API)`);
         queryClient.invalidateQueries({ queryKey: ['prayer_times', selectedMonth] });
       }
     } catch (e) {
-      toast.error('Failed to populate Hijri dates.');
+      toast.error('Failed to populate dates.');
       console.error(e);
     } finally {
       setPopulatingHijri(false);
@@ -345,10 +382,10 @@ const PrayerTimes = () => {
                 onClick={handlePopulateHijriDates}
                 disabled={populatingHijri || !data || data.length === 0}
                 className="gap-2 border-[hsl(270_50%_75%)] text-[#7c3aed] hover:bg-[hsl(270_50%_97%)]"
-                title={`Auto-fill Hijri dates for all ${data?.length ?? 0} days in ${MONTHS_FULL[selectedMonth - 1]}`}
+                title={`Fetch Gregorian + Hijri dates from Aladhan API for all ${data?.length ?? 0} days in ${MONTHS_FULL[selectedMonth - 1]} and save to database`}
               >
                 {populatingHijri ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
-                {populatingHijri ? 'Filling…' : 'Fill Hijri'}
+                {populatingHijri ? 'Filling…' : 'Fill Dates'}
               </Button>
               <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
                 <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} /> Refresh
