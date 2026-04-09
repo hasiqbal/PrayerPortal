@@ -23,22 +23,28 @@ async function logActivity(params: {
   entity_label?: string | null;
   details?: Record<string, unknown> | null;
 }) {
-  // Fire-and-forget: never block the auth flow
-  supabaseAdmin
-    .from('activity_log')
-    .insert({
-      username: params.username,
-      user_role: params.user_role,
-      action: params.action,
-      entity_type: params.entity_type,
-      entity_id: params.entity_id ?? null,
-      entity_label: params.entity_label ?? null,
-      details: params.details ?? null,
-      ip_address: null, // IP unavailable client-side without external call
-    })
-    .then(({ error }) => {
-      if (error) console.warn('[ActivityLog]', error.message);
-    });
+  const row = {
+    username: params.username,
+    user_role: params.user_role,
+    action: params.action,
+    entity_type: params.entity_type,
+    entity_id: params.entity_id ?? null,
+    entity_label: params.entity_label ?? null,
+    details: params.details ?? null,
+    ip_address: null,
+  };
+  console.log('[ActivityLog] Inserting:', row);
+  // Try supabaseAdmin first (service role — bypasses RLS)
+  const { error } = await supabaseAdmin.from('activity_log').insert(row);
+  if (error) {
+    console.error('[ActivityLog] supabaseAdmin insert failed:', error.code, error.message);
+    // Fallback: try regular client in case supabaseAdmin isn't available
+    const { error: err2 } = await supabase.from('activity_log').insert(row);
+    if (err2) console.error('[ActivityLog] fallback insert also failed:', err2.code, err2.message);
+    else console.log('[ActivityLog] fallback insert succeeded.');
+  } else {
+    console.log('[ActivityLog] Insert succeeded for', params.username, params.action);
+  }
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -102,7 +108,7 @@ export function useAuthState(): AuthState {
     if (stored) {
       try {
         const parsed: LocalUser = JSON.parse(stored);
-        logActivity({
+        await logActivity({
           username: parsed.username,
           user_role: parsed.role,
           action: 'logout',
@@ -152,7 +158,8 @@ export function useAuthState(): AuthState {
 
   // ── DB login ──────────────────────────────────────────────────────────────
   const dbLogin = useCallback(async (username: string, password: string): Promise<LocalUser> => {
-    const normalised = username.trim().toLowerCase().replace(/^@+/, '');
+    const normalised = username.trim().toLowerCase().replace(/^@+/, '').replace(/\s+/g, '_');
+    console.log('[Auth] dbLogin attempt for:', normalised);
 
     // ── Try database first (use admin client to bypass RLS on external Supabase) ─
     const { data, error } = await supabaseAdmin
@@ -161,13 +168,15 @@ export function useAuthState(): AuthState {
       .eq('username', normalised)
       .maybeSingle();            // maybeSingle returns null instead of error when no row found
 
+    console.log('[Auth] portal_users lookup result:', { data: data ? { username: data.username, role: data.role, is_active: data.is_active } : null, error });
+
     // Table exists and row found → validate
     if (!error && data) {
       if (!data.is_active) {
         throw new Error('Your account has been deactivated. Contact the administrator.');
       }
       if (data.password !== password) {
-        throw new Error('Invalid username or password.');
+        throw new Error('Incorrect password. Please try again.');
       }
       // Update last_login timestamp (fire-and-forget)
       supabaseAdmin
@@ -238,7 +247,15 @@ export function useAuthState(): AuthState {
       return { id: 'root-admin', username: 'admin', name: 'Root Administrator', role: 'admin' };
     }
 
-    throw new Error('Invalid username or password.');
+    // ── No user found in DB ─ try to load all usernames for helpful error ──
+    const { data: allUsers } = await supabaseAdmin
+      .from('portal_users')
+      .select('username')
+      .order('username');
+    const hint = allUsers && allUsers.length > 0
+      ? ` Available users: ${allUsers.map((u: { username: string }) => u.username).join(', ')}`
+      : '';
+    throw new Error(`Username "${normalised}" not found.${hint}`);
   }, [signIntoSupabase]);
 
   // ── Local login (set session after dbLogin succeeds) ──────────────────────
