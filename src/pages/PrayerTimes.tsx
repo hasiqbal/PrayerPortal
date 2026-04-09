@@ -157,7 +157,7 @@ async function fetchHijriFromApi(
 
   return {
     hijri:     `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
-    gregorian: `${gDay}/${gMonth}/${gYear}`,
+    gregorian: `${gYear}-${gMonth}-${gDay}`,
   };
 }
 

@@ -34,7 +34,7 @@ async function fetchHijriFromApi(year: number, month: number, day: number): Prom
   if (!h) throw new Error('Unexpected API response');
   return {
     hijri: `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
-    gregorian: `${gDay}/${gMonth}/${year}`,
+    gregorian: `${year}-${gMonth}-${gDay}`,
   };
 }
 
@@ -218,7 +218,7 @@ const EditPrayerTimeModal = ({ row, year, hijriEntry, onClose, onSaved, onHijriS
       const gStr = gregTrimmed || (() => {
         const gDay   = String(row.day).padStart(2, '0');
         const gMonth = String(row.month).padStart(2, '0');
-        return `${gDay}/${gMonth}/${year}`;
+        return `${year}-${gMonth}-${gDay}`;
       })();
 
       // Run prayer time save + hijri save in PARALLEL for speed
