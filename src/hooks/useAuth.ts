@@ -12,6 +12,10 @@ import { useState, useEffect, useRef, createContext, useContext, useCallback } f
 import { toast } from 'sonner';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 
+// ─── Supabase connection details (mirrored for direct fetch fallback) ─────────
+const EXT_SUPABASE_URL        = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
+const EXT_SERVICE_KEY         = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w';
+
 // ─── Activity Log Helper ──────────────────────────────────────────────────────
 
 async function logActivity(params: {
@@ -33,17 +37,51 @@ async function logActivity(params: {
     details: params.details ?? null,
     ip_address: null,
   };
-  console.log('[ActivityLog] Inserting:', row);
-  // Try supabaseAdmin first (service role — bypasses RLS)
-  const { error } = await supabaseAdmin.from('activity_log').insert(row);
-  if (error) {
-    console.error('[ActivityLog] supabaseAdmin insert failed:', error.code, error.message);
-    // Fallback: try regular client in case supabaseAdmin isn't available
-    const { error: err2 } = await supabase.from('activity_log').insert(row);
-    if (err2) console.error('[ActivityLog] fallback insert also failed:', err2.code, err2.message);
-    else console.log('[ActivityLog] fallback insert succeeded.');
-  } else {
-    console.log('[ActivityLog] Insert succeeded for', params.username, params.action);
+  console.log('[ActivityLog] Inserting row:', JSON.stringify(row));
+
+  // ── Method 1: supabaseAdmin (service role — bypasses RLS) ─────────────────
+  try {
+    const { error } = await supabaseAdmin.from('activity_log').insert(row);
+    if (!error) {
+      console.log('[ActivityLog] ✓ supabaseAdmin insert succeeded for', params.username, params.action);
+      return;
+    }
+    console.error('[ActivityLog] supabaseAdmin insert failed:', error.code, error.message, error.details);
+  } catch (e) {
+    console.error('[ActivityLog] supabaseAdmin threw:', e);
+  }
+
+  // ── Method 2: raw fetch with service role key (bypasses Supabase JS client) ─
+  console.log('[ActivityLog] Trying raw fetch fallback…');
+  try {
+    const res = await fetch(`${EXT_SUPABASE_URL}/rest/v1/activity_log`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': EXT_SERVICE_KEY,
+        'Authorization': `Bearer ${EXT_SERVICE_KEY}`,
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify(row),
+    });
+    if (res.ok) {
+      console.log('[ActivityLog] ✓ raw fetch insert succeeded for', params.username, params.action);
+      return;
+    }
+    const text = await res.text().catch(() => res.statusText);
+    console.error('[ActivityLog] raw fetch failed:', res.status, text);
+  } catch (e) {
+    console.error('[ActivityLog] raw fetch threw:', e);
+  }
+
+  // ── Method 3: regular supabase client (authenticated session) ──────────────
+  console.log('[ActivityLog] Trying regular supabase client fallback…');
+  try {
+    const { error: err3 } = await supabase.from('activity_log').insert(row);
+    if (!err3) console.log('[ActivityLog] ✓ regular client insert succeeded.');
+    else console.error('[ActivityLog] regular client also failed:', err3.code, err3.message);
+  } catch (e) {
+    console.error('[ActivityLog] regular client threw:', e);
   }
 }
 
@@ -195,8 +233,8 @@ export function useAuthState(): AuthState {
         role: data.role as UserRole,
       };
 
-      // Log login event
-      logActivity({
+      // Log login event — awaited so errors surface in console
+      await logActivity({
         username: data.username,
         user_role: data.role,
         action: 'login',
@@ -234,8 +272,8 @@ export function useAuthState(): AuthState {
       // Establish Supabase Auth session for authenticated write access
       await signIntoSupabase();
 
-      // Log login event for root admin
-      logActivity({
+      // Log login event for root admin — awaited so errors surface in console
+      await logActivity({
         username: 'admin',
         user_role: 'admin',
         action: 'login',
