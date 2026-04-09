@@ -62,6 +62,60 @@ const SingleCell = ({ value, color }: { value: string | null; color: string }) =
   </td>
 );
 
+// ─── Hijri cell ────────────────────────────────────────────────────────────────
+const HijriCell = ({ hijriEntry }: { hijriEntry: HijriCalendarEntry | undefined }) => {
+  const fromDb = !!hijriEntry?.hijri_date;
+
+  if (!fromDb) {
+    return (
+      <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)]">
+        <div className="flex flex-col items-start leading-tight gap-px">
+          <span className="text-[12px] text-muted-foreground/35 font-medium">—</span>
+          <span className="text-[8px] text-muted-foreground/30 font-medium">No data</span>
+        </div>
+      </td>
+    );
+  }
+
+  // Parse "5 Shawwal 1447 AH" into parts
+  const raw = hijriEntry!.hijri_date;
+  const parts = raw.match(/^(\d+)\s+(.+?)\s+(\d{4})\s*AH$/i);
+
+  return (
+    <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)]">
+      {parts ? (
+        <div className="flex flex-col leading-tight gap-px">
+          <div className="flex items-baseline gap-1">
+            <span className="text-[14px] font-extrabold tabular-nums text-[#7c3aed] leading-none">
+              {parts[1]}
+            </span>
+            <span className="text-[11px] font-bold text-[#7c3aed] leading-none whitespace-nowrap">
+              {parts[2]}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[9px] font-semibold text-[#7c3aed]/65 tabular-nums">
+              {parts[3]} AH
+            </span>
+            <span className="text-[7px] font-bold bg-[#7c3aed]/12 text-[#7c3aed] px-1 py-px rounded">
+              DB
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col leading-tight gap-px">
+          <span className="text-[11px] font-semibold text-[#7c3aed] whitespace-nowrap leading-tight">
+            {raw}
+          </span>
+          <span className="text-[7px] font-bold bg-[#7c3aed]/12 text-[#7c3aed] px-1 py-px rounded w-fit">
+            DB
+          </span>
+        </div>
+      )}
+    </td>
+  );
+};
+
 // ─── Prayer definitions ────────────────────────────────────────────────────────
 const PRAYERS = [
   { key: 'fajr',    label: 'Fajr',    color: '#2563eb', startKey: 'fajr',       jamatKey: 'fajr_jamat',    subLabel: 'start / jamaat' },
@@ -130,10 +184,10 @@ const MobileRow = ({
     borderAccent = 'border-blue-300';
   }
 
-  // Resolve Hijri text: prefer DB value, fall back to computed
-  const hijriText = hijriEntry?.hijri_date
-    ?? `${info.hijri.day} ${info.hijri.monthName} ${info.hijri.year} AH`;
   const hijriFromDb = !!hijriEntry?.hijri_date;
+
+  // Parse hijri for compact inline display on mobile
+  const hijriParts = hijriEntry?.hijri_date?.match(/^(\d+)\s+(.+?)\s+(\d{4})\s*AH$/i);
 
   return (
     <div
@@ -191,6 +245,21 @@ const MobileRow = ({
           </div>
         )}
 
+        {/* Hijri mini-badge — always visible in summary row */}
+        {hijriFromDb && hijriParts ? (
+          <div className="shrink-0 flex flex-col items-end text-right">
+            <div className="flex items-baseline gap-0.5">
+              <span className="text-[11px] font-extrabold tabular-nums text-[#7c3aed] leading-none">{hijriParts[1]}</span>
+              <span className="text-[9px] font-semibold text-[#7c3aed] leading-none">{hijriParts[2].split(' ')[0]}</span>
+            </div>
+            <span className="text-[8px] font-bold bg-[#7c3aed]/10 text-[#7c3aed] px-0.5 rounded">DB</span>
+          </div>
+        ) : (
+          <div className="shrink-0 flex flex-col items-end">
+            <span className="text-[9px] text-muted-foreground/40 italic">—</span>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
           <button
@@ -229,22 +298,30 @@ const MobileRow = ({
               </div>
             );
           })}
-          {/* Hijri — from DB if available */}
-          <div className="col-span-2 flex items-center justify-between pt-1 border-t border-[hsl(140_20%_88%)]">
-            <span className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
-              Hijri
-              {hijriFromDb && <span className="text-[8px] text-[#7c3aed] font-bold">DB</span>}
-            </span>
-            <span className={`text-xs font-medium ${hijriFromDb ? 'text-[#7c3aed]' : 'text-foreground/70'}`}>
-              {hijriText}
-            </span>
-          </div>
-          {hijriEntry?.gregorian_date && (
-            <div className="col-span-2 flex items-center justify-between">
-              <span className="text-[10px] font-semibold text-muted-foreground">Gregorian</span>
-              <span className="text-xs text-foreground/60 font-mono">{hijriEntry.gregorian_date}</span>
+
+          {/* Hijri — expanded detail */}
+          <div className="col-span-2 mt-1 pt-2 border-t border-[hsl(140_20%_88%)] space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-[#7c3aed] uppercase tracking-wide flex items-center gap-1">
+                Hijri Date
+                {hijriFromDb && (
+                  <span className="text-[7px] font-bold bg-[#7c3aed]/10 text-[#7c3aed] px-0.5 py-px rounded">DB</span>
+                )}
+              </span>
+              {hijriFromDb ? (
+                <span className="text-xs font-bold text-[#7c3aed]">{hijriEntry!.hijri_date}</span>
+              ) : (
+                <span className="text-xs text-muted-foreground/50 italic">No Hijri data — use Fill Month</span>
+              )}
             </div>
-          )}
+            {hijriEntry?.gregorian_date && (
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-muted-foreground">Gregorian (stored)</span>
+                <span className="text-xs text-foreground/60 font-mono">{hijriEntry.gregorian_date}</span>
+              </div>
+            )}
+          </div>
+
           {info.isClockChange && (
             <div className="col-span-2 text-[10px] font-bold text-amber-700 flex items-center gap-1">
               ⚡ {info.clockChangeLabel}
@@ -275,8 +352,35 @@ const PrayerTimesTable = ({ data, year, hijriOffset, hijriCalendar, onEdit, high
   const month = data[0]?.month ?? new Date().getMonth() + 1;
   const today = new Date();
 
+  // Count how many rows have hijri data for the coverage summary
+  const hijriCount = data.filter(r => !!hijriCalendar.get(r.day)?.hijri_date).length;
+
   return (
     <>
+      {/* ── Hijri coverage bar ── */}
+      {data.length > 0 && (
+        <div className="mb-3 flex items-center gap-3 px-1">
+          <div className="flex items-center gap-2 flex-1">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#7c3aed]/70">Hijri coverage</span>
+            <div className="flex-1 h-1.5 rounded-full bg-[#7c3aed]/10 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-[#7c3aed] transition-all duration-500"
+                style={{ width: `${Math.round((hijriCount / data.length) * 100)}%` }}
+              />
+            </div>
+            <span className="text-[10px] font-bold tabular-nums text-[#7c3aed]">
+              {hijriCount}/{data.length}
+            </span>
+            {hijriCount === data.length && (
+              <span className="text-[9px] font-bold text-emerald-600">✓ Complete</span>
+            )}
+            {hijriCount === 0 && (
+              <span className="text-[9px] font-medium text-muted-foreground/60">Use "Fill Month" to populate</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Mobile layout (< md) ── */}
       <div className="md:hidden space-y-2">
         {data.map((row) => {
@@ -306,7 +410,7 @@ const PrayerTimesTable = ({ data, year, hijriOffset, hijriCalendar, onEdit, high
           <table className="w-full text-sm border-collapse table-fixed" style={{ minWidth: '700px' }}>
             <colgroup>
               <col style={{ width: '58px' }} />
-              <col style={{ width: '76px' }} />
+              <col style={{ width: '88px' }} />
               <col style={{ width: '32px' }} />
               {PRAYERS.map((p) => (
                 <col key={p.key} style={{ width: p.jamatKey ? '60px' : '48px' }} />
@@ -319,8 +423,11 @@ const PrayerTimesTable = ({ data, year, hijriOffset, hijriCalendar, onEdit, high
                 <th className="px-2 py-2 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-[hsl(140_20%_88%)]">
                   Date
                 </th>
-                <th className="px-2 py-2 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-[hsl(140_20%_88%)]">
-                  Hijri
+                <th className="px-2 py-2 text-left border-r border-[hsl(140_20%_88%)]">
+                  <div className="flex flex-col gap-px">
+                    <span className="text-[10px] font-bold text-[#7c3aed] uppercase tracking-wide">Hijri</span>
+                    <span className="text-[8px] font-medium text-[#7c3aed]/50">{hijriCount}/{data.length} stored</span>
+                  </div>
                 </th>
                 <th className="px-1 py-2 text-center text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-[hsl(140_20%_88%)]">
                   TZ
@@ -372,9 +479,6 @@ const PrayerTimesTable = ({ data, year, hijriOffset, hijriCalendar, onEdit, high
                   rowBg = idx % 2 === 0 ? '#ffffff' : 'hsl(142 25% 98.5%)';
                 }
 
-                // Resolve Hijri display: prefer DB, fall back to computed
-                const hijriFromDb = !!hijriEntry?.hijri_date;
-
                 return (
                   <tr
                     key={row.id}
@@ -400,30 +504,8 @@ const PrayerTimesTable = ({ data, year, hijriOffset, hijriCalendar, onEdit, high
                       </div>
                     </td>
 
-                    {/* Hijri — from hijri_calendar DB or local computed */}
-                    <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)]">
-                      {hijriFromDb ? (
-                        <div className="flex flex-col leading-tight">
-                          <span className="text-[11px] font-semibold text-[#7c3aed] whitespace-nowrap">
-                            {hijriEntry!.hijri_date}
-                          </span>
-                          {hijriEntry!.gregorian_date && (
-                            <span className="text-[9px] text-muted-foreground font-mono">
-                              {hijriEntry!.gregorian_date}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex flex-col leading-tight">
-                          <span className="text-[11px] font-semibold text-foreground/55 tabular-nums whitespace-nowrap italic">
-                            {info.hijri.day} {info.hijri.monthName.split(' ').slice(0, 2).join(' ')}
-                          </span>
-                          <span className="text-[9px] text-muted-foreground/60 tabular-nums italic">
-                            {info.hijri.year} AH ~
-                          </span>
-                        </div>
-                      )}
-                    </td>
+                    {/* Hijri — from hijri_calendar DB */}
+                    <HijriCell hijriEntry={hijriEntry} />
 
                     {/* TZ */}
                     <td className="px-1 py-1.5 text-center border-r border-[hsl(140_20%_88%)]">
