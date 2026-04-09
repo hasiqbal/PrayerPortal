@@ -154,8 +154,8 @@ export function useAuthState(): AuthState {
   const dbLogin = useCallback(async (username: string, password: string): Promise<LocalUser> => {
     const normalised = username.trim().toLowerCase().replace(/^@+/, '');
 
-    // ── Try database first ────────────────────────────────────────────────
-    const { data, error } = await supabase
+    // ── Try database first (use admin client to bypass RLS on external Supabase) ─
+    const { data, error } = await supabaseAdmin
       .from('portal_users')
       .select('id, username, name, role, is_active, password')
       .eq('username', normalised)
@@ -170,7 +170,7 @@ export function useAuthState(): AuthState {
         throw new Error('Invalid username or password.');
       }
       // Update last_login timestamp (fire-and-forget)
-      supabase
+      supabaseAdmin
         .from('portal_users')
         .update({ last_login: new Date().toISOString() })
         .eq('id', data.id)
