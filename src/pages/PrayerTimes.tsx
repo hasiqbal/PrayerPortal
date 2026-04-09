@@ -487,6 +487,9 @@ const PrayerTimes = () => {
   const [exportingCsv,          setExportingCsv]          = useState(false);
   // Hijri offset save status: 'idle' | 'saving' | 'saved' | 'error'
   const [offsetStatus,          setOffsetStatus]          = useState<'idle'|'saving'|'saved'|'error'>('idle');
+  // Track the offset at which hijri_calendar was last filled — warn user when they change offset but haven't re-filled
+  const [loadedOffset,          setLoadedOffset]          = useState<number>(0);
+  const [offsetDirty,           setOffsetDirty]           = useState(false);
   const offsetDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const offsetStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [jumpInput,       setJumpInput]       = useState('');
@@ -512,7 +515,10 @@ const PrayerTimes = () => {
 
   // Load Hijri offset from DB on mount
   useEffect(() => {
-    loadOffsetFromDb().then((n) => setHijriOffset(n));
+    loadOffsetFromDb().then((n) => {
+      setHijriOffset(n);
+      setLoadedOffset(n);
+    });
   }, []);
 
   // Check schema once on mount
@@ -544,6 +550,7 @@ const PrayerTimes = () => {
       if (offsetDebounceRef.current) clearTimeout(offsetDebounceRef.current);
       if (offsetStatusTimerRef.current) clearTimeout(offsetStatusTimerRef.current);
       setOffsetStatus('saving');
+      setOffsetDirty(true); // flag that offset changed — DB data may be stale
       offsetDebounceRef.current = setTimeout(async () => {
         const { ok } = await saveOffsetToDb(next);
         setOffsetStatus(ok ? 'saved' : 'error');
@@ -558,6 +565,7 @@ const PrayerTimes = () => {
     if (offsetDebounceRef.current) clearTimeout(offsetDebounceRef.current);
     if (offsetStatusTimerRef.current) clearTimeout(offsetStatusTimerRef.current);
     setHijriOffset(0);
+    setOffsetDirty(loadedOffset !== 0); // dirty only if loaded offset wasn't 0
     setOffsetStatus('saving');
     saveOffsetToDb(0).then(({ ok }) => {
       setOffsetStatus(ok ? 'saved' : 'error');
@@ -730,6 +738,8 @@ const PrayerTimes = () => {
 
     const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
     setHijriCalendar(updated);
+    setLoadedOffset(hijriOffset);
+    setOffsetDirty(false);
     setAllMonthsProgress('');
     setPopulatingMissing(false);
   };
@@ -801,6 +811,8 @@ const PrayerTimes = () => {
 
     const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
     setHijriCalendar(updated);
+    setLoadedOffset(hijriOffset);
+    setOffsetDirty(false);
     setAllMonthsProgress('');
     setPopulatingAllMonths(false);
   };
@@ -859,6 +871,8 @@ const PrayerTimes = () => {
       toast.success(`✓ ${saved} days saved to hijri_calendar`, { id: toastId, duration: 4000 });
       const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
       setHijriCalendar(updated);
+      setLoadedOffset(hijriOffset);
+      setOffsetDirty(false);
     }
     setPopulatingHijri(false);
   };
@@ -987,12 +1001,20 @@ const PrayerTimes = () => {
                 <CalendarCheck size={14} /> Set Jumu'ah
               </Button>
 
+              {/* Offset-changed warning */}
+              {offsetDirty && hijriCalendar.size > 0 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 animate-pulse">
+                  <span className="text-[11px]">⚠️</span>
+                  <span className="text-[10px] font-semibold">Offset changed — click <strong>Fill Month</strong> or <strong>Fill All {selectedYear}</strong> to apply new offset to DB</span>
+                </div>
+              )}
+
               {/* Fill Dates — current month only */}
               <Button
                 variant="outline" size="sm"
                 onClick={handlePopulateHijriDates}
                 disabled={populatingHijri || populatingAllMonths || !data || data.length === 0 || !!schemaError}
-                className="gap-2 border-[hsl(270_50%_75%)] text-[#7c3aed] hover:bg-[hsl(270_50%_97%)]"
+                className={`gap-2 border-[hsl(270_50%_75%)] text-[#7c3aed] hover:bg-[hsl(270_50%_97%)] ${offsetDirty && hijriCalendar.size > 0 ? 'ring-2 ring-amber-400 ring-offset-1 shadow-md' : ''}`}
                 title={schemaError ? 'Fix DB schema first' : `Fetch Gregorian + Hijri dates from Aladhan API for this month`}
               >
                 {populatingHijri ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
