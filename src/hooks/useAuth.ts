@@ -13,11 +13,9 @@ import { useState, useEffect, useRef, createContext, useContext, useCallback } f
 import { toast } from 'sonner';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 
-// ─── OnSpace Cloud — activity log destination ─────────────────────────────────
-// We write activity logs here (not to external Supabase) because OnSpace Cloud
-// is reliably accessible with anon key and we have full control over its schema.
-const ONSPACE_URL     = 'https://erwtsmhykudttxbeerwt.backend.onspace.ai';
-const ONSPACE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyd3RzbWhva3VkdHR4YmVlcnd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NDgxMTksImV4cCI6MjA1OTQyNDExOX0.sNXApMNqRjBbVDI-BOZ3kQZXCmpAkUWJqkIWB1FqvLc';
+// ─── External Supabase — activity log destination ────────────────────────────
+const ONSPACE_URL      = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
+const ONSPACE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w';
 
 // ─── Activity Log Helper ──────────────────────────────────────────────────────
 

@@ -16,9 +16,9 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 
-// ─── OnSpace Cloud — read activity logs from here ─────────────────────────────
-const ONSPACE_URL      = 'https://erwtsmhykudttxbeerwt.backend.onspace.ai';
-const ONSPACE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyd3RzbWhva3VkdHR4YmVlcnd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NDgxMTksImV4cCI6MjA1OTQyNDExOX0.sNXApMNqRjBbVDI-BOZ3kQZXCmpAkUWJqkIWB1FqvLc';
+// ─── External Supabase — read activity logs from here ────────────────────────
+const ONSPACE_URL      = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
+const ONSPACE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w';
 
 async function fetchActivityLogs(): Promise<ActivityLog[]> {
   const res = await fetch(
@@ -759,7 +759,7 @@ const UserManagement = () => {
     },
   });
 
-  // ── Activity logs from OnSpace Cloud ─────────────────────────────────────
+  // ── Activity logs from external Supabase ──────────────────────────────────
   const { data: logs = [], isFetching: logsFetching, refetch: refetchLogs } = useQuery({
     queryKey: ['activity-log-onspace'],
     queryFn: fetchActivityLogs,
