@@ -6,9 +6,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { AdhkarGroup, GROUP_ICON_OPTIONS, GROUP_COLOR_PRESETS, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
 import { createAdhkarGroup, updateAdhkarGroup } from '@/lib/api';
-import { supabase, onspaceCloud } from '@/lib/supabase';
+import { supabase, supabaseAdmin, onspaceCloud } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { Upload, X, Loader2, ImageIcon, Image } from 'lucide-react';
+import { Upload, X, Loader2, ImageIcon, Image, Database } from 'lucide-react';
 
 // ─── Helper: is the icon value a URL (image) or an emoji/text? ────────────────
 export function isIconUrl(icon: string | null | undefined): boolean {
@@ -41,6 +41,41 @@ export function GroupIconDisplay({
     </div>
   );
 }
+
+// ─── SQL setup banner (bg_image_url column missing on external Supabase) ─────
+const BG_IMAGE_SQL = `-- Run in your Supabase SQL Editor (project: lhaqqqatdztuijgdfdcf):
+ALTER TABLE public.adhkar_groups ADD COLUMN IF NOT EXISTS bg_image_url text;`;
+
+const BgImageSetupBanner = ({ onDismiss }: { onDismiss: () => void }) => {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 mb-3">
+      <div className="flex items-start gap-2">
+        <Database size={14} className="text-amber-600 mt-0.5 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-bold text-amber-800">Background image column needs setup</p>
+          <p className="text-[10px] text-amber-700 mt-0.5">
+            Run this SQL in <strong>Supabase dashboard → SQL Editor</strong> (project: lhaqqqatdztuijgdfdcf), then save again:
+          </p>
+          <pre className="mt-1.5 p-2 bg-white border border-amber-200 rounded text-[10px] font-mono text-slate-700 whitespace-pre-wrap leading-relaxed">
+            {BG_IMAGE_SQL}
+          </pre>
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              onClick={() => { navigator.clipboard.writeText(BG_IMAGE_SQL); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+              className="text-[11px] font-semibold px-2.5 py-1 rounded bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+            >
+              {copied ? '✓ Copied!' : 'Copy SQL'}
+            </button>
+            <button onClick={onDismiss} className="text-[11px] text-amber-600 hover:text-amber-800 transition-colors">
+              Dismiss
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 /** Upload an image to the OnSpace Cloud adhkar-images bucket. */
 async function uploadToOnspaceBucket(file: File, folder: string): Promise<string> {
@@ -104,10 +139,11 @@ const EMPTY = {
 type FormState = typeof EMPTY;
 
 const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, onMergeInto }: AdhkarGroupModalProps) => {
-  const [form, setForm]   = useState<FormState>(EMPTY);
+  const [form, setForm]     = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [bgColMissing, setBgColMissing] = useState(false);
   const [nameDropOpen, setNameDropOpen] = useState(false);
-  const [nameSearch, setNameSearch]   = useState('');
+  const [nameSearch, setNameSearch]     = useState('');
   const nameDropRef = useRef<HTMLDivElement>(null);
 
   // Upload states
@@ -118,15 +154,19 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
   const iconFileRef = useRef<HTMLInputElement>(null);
   const bgFileRef   = useRef<HTMLInputElement>(null);
 
-  const isEdit       = !!group?.id || !!group?.name;
-  const originalName = group?.name ?? '';
+  const isEdit           = !!group?.id || !!group?.name;
+  const originalName     = group?.name ?? '';
   const originalPrayerTime = group?.prayer_time ?? '';
-  const mergeTargets = existingGroups.filter((g) => g.name !== originalName);
+  const mergeTargets     = existingGroups.filter((g) => g.name !== originalName);
 
   const initializedForRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!open) { initializedForRef.current = null; return; }
+    if (!open) {
+      initializedForRef.current = null;
+      setBgColMissing(false);
+      return;
+    }
     const key = group ? (group.id ?? group.name) : '__new__';
     if (initializedForRef.current === key) return;
     initializedForRef.current = key;
@@ -221,7 +261,10 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
     if (!form.name.trim()) { toast.error('Group name is required.'); return; }
     setSaving(true);
     const newName = form.name.trim();
-    const payload = {
+    const bgUrl   = form.bg_image_url?.trim() || null;
+
+    // Build base payload (always included)
+    const basePayload = {
       name:          newName,
       prayer_time:   form.prayer_time || null,
       icon:          form.icon,
@@ -231,8 +274,8 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
       badge_color:   form.badge_color,
       description:   form.description?.trim() || null,
       display_order: Number(form.display_order) || 0,
-      bg_image_url:  form.bg_image_url?.trim() || null,
     };
+
     try {
       const hasRealId = !!group?.id && !group.id.startsWith('__');
       const isRename  = isEdit && newName !== originalName;
@@ -246,44 +289,87 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
         return;
       }
 
-      const saved = hasRealId
-        ? await updateAdhkarGroup(group!.id, payload)
-        : await createAdhkarGroup(payload);
+      // ── Step 1: Try save with bg_image_url ───────────────────────────────
+      let saved: AdhkarGroup;
+      let bgSavedInMain = false;
 
-      const nameChanged = isEdit && payload.name !== originalName;
-      const timeChanged = isEdit && payload.prayer_time !== originalPrayerTime;
+      try {
+        const payloadWithBg = { ...basePayload, bg_image_url: bgUrl };
+        saved = hasRealId
+          ? await updateAdhkarGroup(group!.id, payloadWithBg)
+          : await createAdhkarGroup(payloadWithBg);
+        bgSavedInMain = true;
+      } catch (firstErr) {
+        const errMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+        if (errMsg.includes('bg_image_url') || (errMsg.includes('schema cache') && errMsg.includes('adhkar_groups'))) {
+          // Column missing on external Supabase — retry without bg_image_url
+          console.warn('[AdhkarGroupModal] bg_image_url column missing, retrying without it:', errMsg);
+          setBgColMissing(true);
+          saved = hasRealId
+            ? await updateAdhkarGroup(group!.id, basePayload)
+            : await createAdhkarGroup(basePayload);
+        } else {
+          throw firstErr;
+        }
+      }
 
+      // ── Step 2: If bg_image_url was not saved yet, try patching it via supabaseAdmin ─
+      if (!bgSavedInMain && bgUrl && saved.id && !bgColMissing) {
+        const { error: bgErr } = await supabaseAdmin
+          .from('adhkar_groups')
+          .update({ bg_image_url: bgUrl })
+          .eq('id', saved.id);
+        if (bgErr) {
+          console.warn('[AdhkarGroupModal] bg_image_url patch failed:', bgErr.message);
+          setBgColMissing(true);
+        } else {
+          saved = { ...saved, bg_image_url: bgUrl } as AdhkarGroup;
+        }
+      }
+
+      // ── Step 3: Attach bgUrl to returned object for optimistic UI ────────
+      if (bgSavedInMain && bgUrl) {
+        saved = { ...saved, bg_image_url: bgUrl } as AdhkarGroup;
+      }
+
+      const nameChanged = isEdit && newName !== originalName;
+      const timeChanged = isEdit && (form.prayer_time || null) !== (originalPrayerTime || null);
+
+      // ── Step 4: Sync to external backend (non-blocking) ──────────────────
       const externalPayload: Record<string, unknown> = {
-        description:   payload.description ?? null,
-        icon:          payload.icon,
-        icon_color:    payload.icon_color,
-        icon_bg_color: payload.icon_bg_color,
-        badge_text:    payload.badge_text ?? null,
-        badge_color:   payload.badge_color,
-        display_order: payload.display_order ?? 0,
-        prayer_time:   payload.prayer_time ?? null,
-        bg_image_url:  payload.bg_image_url ?? null,
+        description:   basePayload.description ?? null,
+        icon:          basePayload.icon,
+        icon_color:    basePayload.icon_color,
+        icon_bg_color: basePayload.icon_bg_color,
+        badge_text:    basePayload.badge_text ?? null,
+        badge_color:   basePayload.badge_color,
+        display_order: basePayload.display_order ?? 0,
+        prayer_time:   basePayload.prayer_time ?? null,
+        bg_image_url:  bgUrl,
       };
 
       syncGroupToExternal(
-        payload.name!,
+        newName,
         externalPayload,
         nameChanged ? originalName : undefined,
-        timeChanged ? payload.prayer_time ?? undefined : undefined,
+        timeChanged ? (form.prayer_time || undefined) : undefined,
       ).catch((err) => console.warn('[AdhkarGroupModal] External sync (non-critical):', err?.message ?? err));
 
-      if (isEdit) {
+      // ── Step 5: Show result ───────────────────────────────────────────────
+      if (bgColMissing && bgUrl) {
+        toast.warning('Group saved — run the SQL above to enable background images, then save again.');
+      } else if (isEdit) {
         toast.success(timeChanged
-          ? `Group updated · entries will move to ${PRAYER_TIME_LABELS[payload.prayer_time ?? ''] ?? payload.prayer_time ?? 'new section'}.`
+          ? `Group updated · entries will move to ${PRAYER_TIME_LABELS[form.prayer_time ?? ''] ?? form.prayer_time ?? 'new section'}.`
           : 'Group updated.');
-        onSaved(saved, nameChanged ? originalName : undefined, originalPrayerTime || undefined);
       } else {
         toast.success('Group created.');
-        onSaved(saved);
       }
+
+      onSaved(saved, nameChanged ? originalName : undefined, originalPrayerTime || undefined);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+      toast.error(`Failed to save group: ${message}`);
     } finally {
       setSaving(false);
     }
@@ -312,6 +398,9 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           </DialogTitle>
         </DialogHeader>
 
+        {/* ── SQL setup banner (bg_image_url column missing) ── */}
+        {bgColMissing && <BgImageSetupBanner onDismiss={() => setBgColMissing(false)} />}
+
         {/* ── Live preview card ── */}
         <div
           className="rounded-xl p-4 border border-border flex items-start gap-4 overflow-hidden relative"
@@ -320,7 +409,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
             minHeight: 88,
           }}
         >
-          {/* Background image overlay */}
           {preview.bgImg && (
             <>
               <img
@@ -443,11 +531,10 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
             />
           </div>
 
-          {/* ── Icon section ──────────────────────────────────────────────── */}
+          {/* ── Icon section ───────────────────────────────────────────────── */}
           <div className="space-y-2">
             <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Icon</Label>
 
-            {/* Current icon preview */}
             <div className="flex items-center gap-3">
               <GroupIconDisplay icon={form.icon || '☪️'} bg={form.icon_bg_color} size={52} />
               {isIconUrl(form.icon) && (
@@ -461,7 +548,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
               )}
             </div>
 
-            {/* Upload zone */}
             <div
               onDragOver={(e) => { e.preventDefault(); setDragOverIcon(true); }}
               onDragLeave={() => setDragOverIcon(false)}
@@ -481,7 +567,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
                 className="sr-only" onChange={handleIconFileChange} tabIndex={-1} />
             </div>
 
-            {/* Islamic emoji picker — shown only when not using a URL icon */}
             {!isIconUrl(form.icon) && (
               <>
                 <p className="text-[10px] text-muted-foreground font-medium">Or pick an Islamic icon:</p>
@@ -506,10 +591,9 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           <div className="space-y-2">
             <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">
               Card Background Image
-              <span className="ml-2 text-[10px] font-normal text-muted-foreground">(optional — shown behind the group card in the app)</span>
+              <span className="ml-2 text-[10px] font-normal text-muted-foreground">(optional — shown behind the group card)</span>
             </Label>
 
-            {/* Current background preview */}
             {form.bg_image_url && (
               <div className="relative w-full h-20 rounded-xl overflow-hidden border border-border">
                 <img src={form.bg_image_url} alt="background preview" className="w-full h-full object-cover" />
@@ -523,7 +607,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
               </div>
             )}
 
-            {/* Upload zone */}
             <div
               onDragOver={(e) => { e.preventDefault(); setDragOverBg(true); }}
               onDragLeave={() => setDragOverBg(false)}
