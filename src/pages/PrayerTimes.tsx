@@ -298,8 +298,6 @@ const MONTHS_SHORT  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oc
 const MONTHS_FULL   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR  = new Date().getFullYear();
 const CURRENT_MONTH = new Date().getMonth() + 1;
-const YEAR_RANGE: number[] = [];
-for (let y = CURRENT_YEAR - 5; y <= CURRENT_YEAR + 10; y++) YEAR_RANGE.push(y);
 
 function monthIsBST(year: number, month: number): boolean { return isBST(year, month, 15); }
 function fridayCount(year: number, month: number): number {
@@ -538,6 +536,8 @@ const PrayerTimes = () => {
   const [previewHijri,    setPreviewHijri]    = useState<Map<number, string>>(new Map());
   const [previewLoading,  setPreviewLoading]  = useState(false);
   const [previewOffset,   setPreviewOffset]   = useState<number | null>(null);
+  const [yearInput,       setYearInput]       = useState<string>('');
+  const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Hijri calendar data: day → entry
   const [hijriCalendar, setHijriCalendar] = useState<Map<number, HijriCalendarEntry>>(new Map());
@@ -589,7 +589,30 @@ const PrayerTimes = () => {
     fetchEidPrayers().then(setEidPrayers);
   }, []);
 
-  // ── Preview: fetch current month Hijri with current offset (no DB write) ──
+  // ── Auto-preview on offset or month/year change (1s debounce) ──────────────
+  useEffect(() => {
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
+    previewDebounceRef.current = setTimeout(async () => {
+      setPreviewLoading(true);
+      setPreviewHijri(new Map());
+      try {
+        const monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, hijriOffset);
+        const preview = new Map<number, string>();
+        monthMap.forEach(({ hijri }, day) => preview.set(day, hijri));
+        setPreviewHijri(preview);
+        setPreviewOffset(hijriOffset);
+      } catch (e) {
+        console.warn('[Preview] Auto-preview failed:', e);
+      } finally {
+        setPreviewLoading(false);
+      }
+    }, 1000);
+    return () => {
+      if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
+    };
+  }, [hijriOffset, selectedYear, selectedMonth]);
+
+  // ── Manual preview helper (kept for clearPreview) ──────────────────────────
   const handlePreviewHijri = async () => {
     setPreviewLoading(true);
     setPreviewHijri(new Map());
@@ -1092,25 +1115,6 @@ const PrayerTimes = () => {
                 <Star size={14} /> Eid Times
               </Button>
 
-              {/* Preview button */}
-              <Button
-                variant="outline" size="sm"
-                onClick={previewHijri.size > 0 ? clearPreview : handlePreviewHijri}
-                disabled={previewLoading || populatingHijri || populatingAllMonths}
-                className={`gap-2 ${
-                  previewHijri.size > 0
-                    ? 'border-[#7c3aed] bg-[hsl(270_50%_97%)] text-[#7c3aed] font-semibold'
-                    : 'border-[hsl(270_40%_80%)] text-[#7c3aed] hover:bg-[hsl(270_50%_97%)]'
-                }`}
-                title={previewHijri.size > 0 ? 'Clear preview' : `Preview Hijri dates with current offset (no DB write)`}
-              >
-                {previewLoading
-                  ? <><Loader2 size={14} className="animate-spin" />Previewing…</>
-                  : previewHijri.size > 0
-                    ? <>👁 Clear Preview</>
-                    : <>👁 Preview Offset</>}
-              </Button>
-
               {/* Offset-changed warning */}
               {offsetDirty && hijriCalendar.size > 0 && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 animate-pulse">
@@ -1176,23 +1180,46 @@ const PrayerTimes = () => {
             </div>
           </div>
 
-          {/* Year selector */}
-          <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mr-1 shrink-0">Year</span>
-            <button onClick={() => setSelectedYear((y) => Math.max(y - 1, YEAR_RANGE[0]))} className="w-6 h-6 flex items-center justify-center rounded border border-[hsl(140_20%_88%)] hover:bg-[hsl(140_30%_97%)]"><ChevronLeft size={12} /></button>
-            <div className="flex items-center gap-1 flex-wrap">
-              {YEAR_RANGE.map((y) => {
-                const active = selectedYear === y; const isCurrent = y === CURRENT_YEAR;
-                return (
-                  <button key={y} onClick={() => setSelectedYear(y)}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all border ${active ? 'border-transparent text-white shadow-sm' : isCurrent ? 'border-[hsl(142_50%_75%)]' : 'border-[hsl(140_20%_88%)] bg-white text-muted-foreground hover:text-foreground'}`}
-                    style={active ? { background: 'hsl(var(--primary))' } : {}}>
-                    {y}{isCurrent && !active && <span className="ml-0.5 inline-block w-1 h-1 rounded-full bg-[hsl(142_60%_35%)] align-middle" />}
-                  </button>
-                );
-              })}
-            </div>
-            <button onClick={() => setSelectedYear((y) => Math.min(y + 1, YEAR_RANGE[YEAR_RANGE.length - 1]))} className="w-6 h-6 flex items-center justify-center rounded border border-[hsl(140_20%_88%)] hover:bg-[hsl(140_30%_97%)]"><ChevronRight size={12} /></button>
+          {/* Year selector — unlimited range, type any year */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest shrink-0">Year</span>
+            <button
+              onClick={() => setSelectedYear((y) => y - 1)}
+              className="w-7 h-7 flex items-center justify-center rounded-lg border border-[hsl(140_20%_88%)] hover:bg-[hsl(140_30%_97%)] transition-colors"
+            ><ChevronLeft size={13} /></button>
+            <input
+              type="number"
+              value={yearInput !== '' ? yearInput : selectedYear}
+              onChange={(e) => setYearInput(e.target.value)}
+              onBlur={() => {
+                const n = parseInt(yearInput, 10);
+                if (!isNaN(n) && n > 0) setSelectedYear(n);
+                setYearInput('');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const n = parseInt(yearInput, 10);
+                  if (!isNaN(n) && n > 0) setSelectedYear(n);
+                  setYearInput('');
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              className="w-20 text-center text-sm font-bold tabular-nums border border-[hsl(140_20%_88%)] rounded-lg px-2 py-1 bg-white focus:outline-none focus:border-[hsl(142_60%_45%)] transition-all"
+              style={{ color: selectedYear === CURRENT_YEAR ? 'hsl(142 60% 32%)' : 'hsl(150 30% 12%)' }}
+            />
+            {selectedYear === CURRENT_YEAR && (
+              <span className="text-[10px] font-bold text-[hsl(142_60%_35%)] bg-[hsl(142_50%_93%)] px-1.5 py-0.5 rounded-full">Current</span>
+            )}
+            <button
+              onClick={() => setSelectedYear((y) => y + 1)}
+              className="w-7 h-7 flex items-center justify-center rounded-lg border border-[hsl(140_20%_88%)] hover:bg-[hsl(140_30%_97%)] transition-colors"
+            ><ChevronRight size={13} /></button>
+            {selectedYear !== CURRENT_YEAR && (
+              <button
+                onClick={() => setSelectedYear(CURRENT_YEAR)}
+                className="text-[10px] font-medium px-2 py-1 rounded-lg border border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)] transition-colors"
+              >Today's year</button>
+            )}
           </div>
 
           {/* Month selector */}
@@ -1256,14 +1283,20 @@ const PrayerTimes = () => {
           )}
           {!isLoading && !isError && data && (
             <>
-              {/* Preview banner */}
-              {previewHijri.size > 0 && (
+              {/* Preview banner — auto-shown on offset change */}
+              {(previewHijri.size > 0 || previewLoading) && (
                 <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl border border-[#7c3aed]/30 bg-[hsl(270_50%_97%)]">
-                  <span className="text-sm">👁</span>
+                  {previewLoading
+                    ? <Loader2 size={13} className="animate-spin text-[#7c3aed] shrink-0" />
+                    : <span className="text-sm shrink-0">👁</span>}
                   <span className="text-xs font-semibold text-[#7c3aed]">
-                    Previewing {previewHijri.size} days with offset {previewOffset !== null && previewOffset >= 0 ? '+' : ''}{previewOffset} — dashed purple = preview, solid = stored in DB
+                    {previewLoading
+                      ? `Auto-previewing offset ${hijriOffset > 0 ? '+' : ''}${hijriOffset}…`
+                      : `Previewing ${previewHijri.size} days · offset ${previewOffset !== null && previewOffset >= 0 ? '+' : ''}${previewOffset} — dashed = preview, solid = stored in DB`}
                   </span>
-                  <button onClick={clearPreview} className="ml-auto text-[10px] font-medium text-[#7c3aed]/60 hover:text-[#7c3aed] transition-colors">✕ Clear</button>
+                  {!previewLoading && (
+                    <button onClick={clearPreview} className="ml-auto text-[10px] font-medium text-[#7c3aed]/60 hover:text-[#7c3aed] transition-colors">✕ Clear</button>
+                  )}
                 </div>
               )}
 
