@@ -9,6 +9,7 @@ interface PrayerTimesTableProps {
   year: number;
   hijriOffset: number;
   hijriCalendar: Map<number, HijriCalendarEntry>;
+  previewHijri?: Map<number, string>;
   eidPrayers: EidPrayer[];
   onEdit: (row: PrayerTime) => void;
   highlightDay?: number | null;
@@ -17,9 +18,7 @@ interface PrayerTimesTableProps {
 // ─── Eid detection from Hijri date string ──────────────────────────────────────
 function detectEidType(hijriDate: string | undefined): EidType | null {
   if (!hijriDate) return null;
-  // "1 Shawwal" → Eid al-Fitr (handles diacritics like Shawwāl)
   if (/^1\s+Shaw/i.test(hijriDate)) return 'eid_al_fitr';
-  // "10 Dhul Hijjah" / "10 Dhu al-Hijjah" → Eid al-Adha
   if (/^10\s+(Dhu|Dhul|Zu)/i.test(hijriDate)) return 'eid_al_adha';
   return null;
 }
@@ -52,29 +51,18 @@ const EidTimesDisplay = ({ eidType, eidPrayers }: { eidType: EidType; eidPrayers
     .sort((a, b) => a.jamaat_number - b.jamaat_number);
 
   return (
-    <div
-      className="rounded-xl px-3 py-2.5 border mt-1"
-      style={{ background: cfg.bg, borderColor: cfg.border }}
-    >
+    <div className="rounded-xl px-3 py-2.5 border mt-1" style={{ background: cfg.bg, borderColor: cfg.border }}>
       <div className="flex items-center gap-2 mb-2">
         <Star size={12} style={{ color: cfg.color }} />
-        <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: cfg.color }}>
-          {cfg.label}
-        </span>
-        <span className="ml-auto text-sm font-bold" style={{ color: cfg.color, fontFamily: 'serif' }} dir="rtl">
-          {cfg.arabic}
-        </span>
+        <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: cfg.color }}>{cfg.label}</span>
+        <span className="ml-auto text-sm font-bold" style={{ color: cfg.color, fontFamily: 'serif' }} dir="rtl">{cfg.arabic}</span>
       </div>
       {times.length === 0 ? (
         <p className="text-[10px] text-muted-foreground italic">No jamaats set — use the "Eid Times" button to add prayer times</p>
       ) : (
         <div className="flex flex-wrap gap-2">
           {times.map((e) => (
-            <div
-              key={e.jamaat_number}
-              className="flex items-center gap-1.5 bg-white rounded-lg px-2.5 py-1 border"
-              style={{ borderColor: cfg.border }}
-            >
+            <div key={e.jamaat_number} className="flex items-center gap-1.5 bg-white rounded-lg px-2.5 py-1 border" style={{ borderColor: cfg.border }}>
               <span className="text-[10px] font-bold" style={{ color: cfg.color }}>J{e.jamaat_number}</span>
               <span className="text-[13px] font-bold tabular-nums" style={{ color: cfg.color }}>{e.time}</span>
             </div>
@@ -86,13 +74,8 @@ const EidTimesDisplay = ({ eidType, eidPrayers }: { eidType: EidType; eidPrayers
 };
 
 // ─── Stacked cell (desktop) ────────────────────────────────────────────────────
-const StackedCell = ({
-  start, jamat, color, alwaysShowBoth = false,
-}: {
-  start: string | null;
-  jamat: string | null | undefined;
-  color: string;
-  alwaysShowBoth?: boolean;
+const StackedCell = ({ start, jamat, color, alwaysShowBoth = false }: {
+  start: string | null; jamat: string | null | undefined; color: string; alwaysShowBoth?: boolean;
 }) => {
   const showSecond = alwaysShowBoth || jamat !== undefined;
   return (
@@ -123,40 +106,73 @@ const SingleCell = ({ value, color }: { value: string | null; color: string }) =
   </td>
 );
 
-// ─── Hijri cell ────────────────────────────────────────────────────────────────
-const HijriCell = ({ hijriEntry }: { hijriEntry: HijriCalendarEntry | undefined }) => {
+// ─── Hijri cell (DB + optional preview) ───────────────────────────────────────
+const HijriCell = ({ hijriEntry, previewDate }: {
+  hijriEntry: HijriCalendarEntry | undefined;
+  previewDate?: string;
+}) => {
   const fromDb = !!hijriEntry?.hijri_date;
-  if (!fromDb) {
-    return (
-      <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)]">
+  const hasPreview = !!previewDate;
+  const parseHijri = (raw: string) => raw.match(/^(\d+)\s+(.+?)\s+(\d{4})\s*AH$/i);
+  const isDiff = fromDb && hasPreview && hijriEntry!.hijri_date !== previewDate;
+
+  return (
+    <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)] min-w-[88px]">
+      {/* DB value */}
+      {fromDb && (() => {
+        const raw = hijriEntry!.hijri_date;
+        const parts = parseHijri(raw);
+        return parts ? (
+          <div className="flex flex-col leading-tight gap-px">
+            <div className="flex items-baseline gap-1">
+              <span className="text-[14px] font-extrabold tabular-nums text-[#7c3aed] leading-none">{parts[1]}</span>
+              <span className="text-[11px] font-bold text-[#7c3aed] leading-none whitespace-nowrap">{parts[2]}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-semibold text-[#7c3aed]/65 tabular-nums">{parts[3]} AH</span>
+              <span className="text-[7px] font-bold bg-[#7c3aed]/12 text-[#7c3aed] px-1 py-px rounded">DB</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col leading-tight gap-px">
+            <span className="text-[11px] font-semibold text-[#7c3aed] whitespace-nowrap leading-tight">{raw}</span>
+            <span className="text-[7px] font-bold bg-[#7c3aed]/12 text-[#7c3aed] px-1 py-px rounded w-fit">DB</span>
+          </div>
+        );
+      })()}
+
+      {/* No DB, no preview */}
+      {!fromDb && !hasPreview && (
         <div className="flex flex-col items-start leading-tight gap-px">
           <span className="text-[12px] text-muted-foreground/35 font-medium">—</span>
           <span className="text-[8px] text-muted-foreground/30 font-medium">No data</span>
         </div>
-      </td>
-    );
-  }
-  const raw = hijriEntry!.hijri_date;
-  const parts = raw.match(/^(\d+)\s+(.+?)\s+(\d{4})\s*AH$/i);
-  return (
-    <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)]">
-      {parts ? (
-        <div className="flex flex-col leading-tight gap-px">
-          <div className="flex items-baseline gap-1">
-            <span className="text-[14px] font-extrabold tabular-nums text-[#7c3aed] leading-none">{parts[1]}</span>
-            <span className="text-[11px] font-bold text-[#7c3aed] leading-none whitespace-nowrap">{parts[2]}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-[9px] font-semibold text-[#7c3aed]/65 tabular-nums">{parts[3]} AH</span>
-            <span className="text-[7px] font-bold bg-[#7c3aed]/12 text-[#7c3aed] px-1 py-px rounded">DB</span>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col leading-tight gap-px">
-          <span className="text-[11px] font-semibold text-[#7c3aed] whitespace-nowrap leading-tight">{raw}</span>
-          <span className="text-[7px] font-bold bg-[#7c3aed]/12 text-[#7c3aed] px-1 py-px rounded w-fit">DB</span>
-        </div>
       )}
+
+      {/* Preview value */}
+      {hasPreview && (() => {
+        const parts = parseHijri(previewDate!);
+        return (
+          <div className={`flex flex-col leading-tight gap-px ${fromDb ? 'mt-1.5 pt-1.5 border-t border-dashed border-[#7c3aed]/30' : ''}`}>
+            {parts ? (
+              <>
+                <div className="flex items-baseline gap-1">
+                  <span className={`text-[13px] font-bold tabular-nums leading-none ${isDiff ? 'text-amber-600' : 'text-[#7c3aed]/60'}`}>{parts[1]}</span>
+                  <span className={`text-[10px] font-semibold leading-none whitespace-nowrap ${isDiff ? 'text-amber-500' : 'text-[#7c3aed]/50'}`}>{parts[2]}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className={`text-[8px] tabular-nums ${isDiff ? 'text-amber-500' : 'text-[#7c3aed]/40'}`}>{parts[3]} AH</span>
+                  <span className={`text-[7px] font-bold px-1 py-px rounded border border-dashed ${
+                    isDiff ? 'border-amber-300 text-amber-600 bg-amber-50' : 'border-[#7c3aed]/30 text-[#7c3aed]/60'
+                  }`}>{isDiff ? '△Pre' : '✓Pre'}</span>
+                </div>
+              </>
+            ) : (
+              <span className="text-[10px] text-[#7c3aed]/60 italic">{previewDate}</span>
+            )}
+          </div>
+        );
+      })()}
     </td>
   );
 };
@@ -191,13 +207,14 @@ const EXPANDED_PRAYERS = [
 
 // ─── Mobile card row ───────────────────────────────────────────────────────────
 const MobileRow = ({
-  row, year, month, hijriOffset, hijriEntry, eidPrayers, isToday, isHighlighted, onEdit,
+  row, year, month, hijriOffset, hijriEntry, previewDate, eidPrayers, isToday, isHighlighted, onEdit,
 }: {
   row: PrayerTime;
   year: number;
   month: number;
   hijriOffset: number;
   hijriEntry: HijriCalendarEntry | undefined;
+  previewDate?: string;
   eidPrayers: EidPrayer[];
   isToday: boolean;
   isHighlighted: boolean;
@@ -208,7 +225,6 @@ const MobileRow = ({
   const eidType = detectEidType(hijriEntry?.hijri_date);
   const eidCfg  = eidType ? EID_CONFIG[eidType] : null;
 
-  // Card style — Eid overrides Friday/today
   let cardStyle: React.CSSProperties = {};
   let borderCls = 'border-[hsl(140_20%_88%)]';
   if (isHighlighted) {
@@ -228,8 +244,10 @@ const MobileRow = ({
     borderCls = 'border-blue-300';
   }
 
-  const hijriFromDb = !!hijriEntry?.hijri_date;
-  const hijriParts  = hijriEntry?.hijri_date?.match(/^(\d+)\s+(.+?)\s+(\d{4})\s*AH$/i);
+  const hijriFromDb  = !!hijriEntry?.hijri_date;
+  const hijriParts   = hijriEntry?.hijri_date?.match(/^(\d+)\s+(.+?)\s+(\d{4})\s*AH$/i);
+  const previewParts = previewDate?.match(/^(\d+)\s+(.+?)\s+(\d{4})\s*AH$/i);
+  const previewDiffers = !!(previewDate && hijriEntry?.hijri_date && previewDate !== hijriEntry.hijri_date);
 
   return (
     <div
@@ -242,23 +260,15 @@ const MobileRow = ({
 
         {/* Day number */}
         <div className="w-10 shrink-0">
-          <div
-            className="text-base font-extrabold tabular-nums leading-none"
-            style={{ color: eidCfg ? eidCfg.color : info.isFriday ? '#d97706' : isToday ? '#2563eb' : 'hsl(150 30% 12%)' }}
-          >
+          <div className="text-base font-extrabold tabular-nums leading-none"
+            style={{ color: eidCfg ? eidCfg.color : info.isFriday ? '#d97706' : isToday ? '#2563eb' : 'hsl(150 30% 12%)' }}>
             {row.day}
           </div>
-          <div
-            className="text-[9px] font-bold uppercase"
-            style={{ color: eidCfg ? eidCfg.color + 'aa' : info.isFriday ? '#f59e0b' : isToday ? '#3b82f6' : 'hsl(var(--muted-foreground))' }}
-          >
+          <div className="text-[9px] font-bold uppercase"
+            style={{ color: eidCfg ? eidCfg.color + 'aa' : info.isFriday ? '#f59e0b' : isToday ? '#3b82f6' : 'hsl(var(--muted-foreground))' }}>
             {info.shortName}
           </div>
-          {eidCfg && (
-            <div className="text-[7px] font-bold mt-0.5 flex items-center gap-0.5" style={{ color: eidCfg.color }}>
-              <Star size={7} /> Eid
-            </div>
-          )}
+          {eidCfg && <div className="text-[7px] font-bold mt-0.5 flex items-center gap-0.5" style={{ color: eidCfg.color }}><Star size={7} /> Eid</div>}
           {!eidCfg && info.isFriday && <div className="text-[7px] font-bold text-amber-600 mt-0.5">Jumu'ah</div>}
           {!eidCfg && isToday && !info.isFriday && <div className="text-[7px] font-bold text-blue-500 mt-0.5">Today</div>}
         </div>
@@ -296,7 +306,7 @@ const MobileRow = ({
           </div>
         )}
 
-        {/* Hijri mini-badge + Eid badge */}
+        {/* Hijri mini-badge + preview + Eid badge */}
         <div className="shrink-0 flex flex-col items-end text-right gap-0.5">
           {hijriFromDb && hijriParts ? (
             <>
@@ -309,6 +319,18 @@ const MobileRow = ({
           ) : (
             <span className="text-[9px] text-muted-foreground/40 italic">—</span>
           )}
+          {/* Preview badge */}
+          {previewDate && previewParts && (
+            <div className={`flex flex-col items-end gap-px mt-0.5 pt-0.5 border-t border-dashed ${previewDiffers ? 'border-amber-300' : 'border-[#7c3aed]/20'}`}>
+              <div className="flex items-baseline gap-0.5">
+                <span className={`text-[10px] font-bold tabular-nums leading-none ${previewDiffers ? 'text-amber-600' : 'text-[#7c3aed]/55'}`}>{previewParts[1]}</span>
+                <span className={`text-[8px] font-semibold leading-none ${previewDiffers ? 'text-amber-500' : 'text-[#7c3aed]/45'}`}>{previewParts[2].split(' ')[0]}</span>
+              </div>
+              <span className={`text-[7px] font-bold px-0.5 rounded border border-dashed ${previewDiffers ? 'border-amber-300 text-amber-600' : 'border-[#7c3aed]/30 text-[#7c3aed]/50'}`}>
+                {previewDiffers ? '△Pre' : '✓Pre'}
+              </span>
+            </div>
+          )}
           {eidCfg && (
             <span className="text-[8px] font-bold px-1 py-px rounded" style={{ background: eidCfg.color + '18', color: eidCfg.color }}>
               ★ EID
@@ -318,21 +340,11 @@ const MobileRow = ({
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={(e) => { e.stopPropagation(); onEdit(row); }}
-            className="p-1.5 rounded-lg hover:bg-[hsl(142_50%_93%)] transition-colors"
-            title="Edit"
-          >
+          <button onClick={(e) => { e.stopPropagation(); onEdit(row); }} className="p-1.5 rounded-lg hover:bg-[hsl(142_50%_93%)] transition-colors" title="Edit">
             <Pencil size={13} className="text-[hsl(142_60%_32%)]" />
           </button>
-          <button
-            onClick={() => setExpanded(e => !e)}
-            className="p-1.5 rounded-lg hover:bg-[hsl(140_20%_93%)] transition-colors"
-            title={expanded ? 'Collapse' : 'Expand all times'}
-          >
-            {expanded
-              ? <ChevronDown size={13} className="text-muted-foreground" />
-              : <ChevronRight size={13} className="text-muted-foreground" />}
+          <button onClick={() => setExpanded(e => !e)} className="p-1.5 rounded-lg hover:bg-[hsl(140_20%_93%)] transition-colors" title={expanded ? 'Collapse' : 'Expand'}>
+            {expanded ? <ChevronDown size={13} className="text-muted-foreground" /> : <ChevronRight size={13} className="text-muted-foreground" />}
           </button>
         </div>
       </div>
@@ -354,7 +366,7 @@ const MobileRow = ({
             );
           })}
 
-          {/* Hijri detail */}
+          {/* Hijri + Preview detail */}
           <div className="col-span-2 mt-1 pt-2 border-t border-[hsl(140_20%_88%)] space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-[#7c3aed] uppercase tracking-wide flex items-center gap-1">
@@ -371,9 +383,20 @@ const MobileRow = ({
                 <span className="text-xs text-foreground/60 font-mono">{hijriEntry.gregorian_date}</span>
               </div>
             )}
+            {/* Preview row */}
+            {previewDate && (
+              <div className={`flex items-center justify-between rounded px-2 py-1 border border-dashed ${
+                previewDiffers ? 'border-amber-300 bg-amber-50' : 'border-[#7c3aed]/25 bg-[#7c3aed]/5'
+              }`}>
+                <span className={`text-[10px] font-bold ${previewDiffers ? 'text-amber-700' : 'text-[#7c3aed]/70'}`}>
+                  👁 Preview {previewDiffers && <span className="text-amber-500">(△ will change)</span>}
+                </span>
+                <span className={`text-xs font-semibold ${previewDiffers ? 'text-amber-700' : 'text-[#7c3aed]/70'}`}>{previewDate}</span>
+              </div>
+            )}
           </div>
 
-          {/* Eid prayer times — only on Eid days */}
+          {/* Eid prayer times */}
           {eidType && (
             <div className="col-span-2">
               <EidTimesDisplay eidType={eidType} eidPrayers={eidPrayers} />
@@ -400,7 +423,7 @@ const MobileRow = ({
 
 // ─── Main table component ──────────────────────────────────────────────────────
 const PrayerTimesTable = ({
-  data, year, hijriOffset, hijriCalendar, eidPrayers, onEdit, highlightDay,
+  data, year, hijriOffset, hijriCalendar, previewHijri = new Map(), eidPrayers, onEdit, highlightDay,
 }: PrayerTimesTableProps) => {
   if (data.length === 0) {
     return (
@@ -412,35 +435,43 @@ const PrayerTimesTable = ({
 
   const month = data[0]?.month ?? new Date().getMonth() + 1;
   const today = new Date();
-  const hijriCount = data.filter(r => !!hijriCalendar.get(r.day)?.hijri_date).length;
+  const hijriCount   = data.filter(r => !!hijriCalendar.get(r.day)?.hijri_date).length;
+  const previewCount = previewHijri.size;
+  const diffCount    = previewCount > 0
+    ? data.filter(r => {
+        const db = hijriCalendar.get(r.day)?.hijri_date;
+        const pre = previewHijri.get(r.day);
+        return pre && db && db !== pre;
+      }).length
+    : 0;
 
   return (
     <>
       {/* ── Hijri coverage bar ── */}
       {data.length > 0 && (
-        <div className="mb-3 flex items-center gap-3 px-1">
-          <div className="flex items-center gap-2 flex-1">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-[#7c3aed]/70">Hijri coverage</span>
+        <div className="mb-3 flex items-center gap-3 px-1 flex-wrap">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#7c3aed]/70 shrink-0">Hijri coverage</span>
             <div className="flex-1 h-1.5 rounded-full bg-[#7c3aed]/10 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-[#7c3aed] transition-all duration-500"
-                style={{ width: `${Math.round((hijriCount / data.length) * 100)}%` }}
-              />
+              <div className="h-full rounded-full bg-[#7c3aed] transition-all duration-500" style={{ width: `${Math.round((hijriCount / data.length) * 100)}%` }} />
             </div>
-            <span className="text-[10px] font-bold tabular-nums text-[#7c3aed]">{hijriCount}/{data.length}</span>
-            {hijriCount === data.length && <span className="text-[9px] font-bold text-emerald-600">✓ Complete</span>}
-            {hijriCount === 0 && <span className="text-[9px] font-medium text-muted-foreground/60">Use "Fill Month" to populate</span>}
+            <span className="text-[10px] font-bold tabular-nums text-[#7c3aed] shrink-0">{hijriCount}/{data.length}</span>
+            {hijriCount === data.length && <span className="text-[9px] font-bold text-emerald-600 shrink-0">✓ Complete</span>}
+            {hijriCount === 0 && <span className="text-[9px] font-medium text-muted-foreground/60 shrink-0">Use "Fill Month" to populate</span>}
           </div>
+          {previewCount > 0 && (
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-[#7c3aed]/70 border border-dashed border-[#7c3aed]/30 rounded-lg px-2 py-1 bg-[#7c3aed]/5">
+              <span>👁 Preview: {previewCount} days</span>
+              {diffCount > 0 && <span className="text-amber-600 font-bold">· {diffCount} △ changed</span>}
+            </div>
+          )}
         </div>
       )}
 
       {/* ── Mobile layout ── */}
       <div className="md:hidden space-y-2">
         {data.map((row) => {
-          const isToday =
-            year === today.getFullYear() &&
-            month === today.getMonth() + 1 &&
-            row.day === today.getDate();
+          const isToday = year === today.getFullYear() && month === today.getMonth() + 1 && row.day === today.getDate();
           return (
             <MobileRow
               key={row.id}
@@ -449,6 +480,7 @@ const PrayerTimesTable = ({
               month={month}
               hijriOffset={hijriOffset}
               hijriEntry={hijriCalendar.get(row.day)}
+              previewDate={previewHijri.get(row.day)}
               eidPrayers={eidPrayers}
               isToday={isToday}
               isHighlighted={highlightDay === row.day}
@@ -464,7 +496,7 @@ const PrayerTimesTable = ({
           <table className="w-full text-sm border-collapse table-fixed" style={{ minWidth: '700px' }}>
             <colgroup>
               <col style={{ width: '58px' }} />
-              <col style={{ width: '88px' }} />
+              <col style={{ width: previewCount > 0 ? '112px' : '88px' }} />
               <col style={{ width: '32px' }} />
               {PRAYERS.map((p) => (
                 <col key={p.key} style={{ width: p.jamatKey ? '60px' : '48px' }} />
@@ -474,24 +506,21 @@ const PrayerTimesTable = ({
 
             <thead>
               <tr className="border-b-2 border-[hsl(140_20%_88%)]" style={{ background: 'hsl(142_30%_97%)' }}>
-                <th className="px-2 py-2 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-[hsl(140_20%_88%)]">
-                  Date
-                </th>
+                <th className="px-2 py-2 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-[hsl(140_20%_88%)]">Date</th>
                 <th className="px-2 py-2 text-left border-r border-[hsl(140_20%_88%)]">
                   <div className="flex flex-col gap-px">
                     <span className="text-[10px] font-bold text-[#7c3aed] uppercase tracking-wide">Hijri</span>
-                    <span className="text-[8px] font-medium text-[#7c3aed]/50">{hijriCount}/{data.length} stored</span>
+                    <span className="text-[8px] font-medium text-[#7c3aed]/50">
+                      {hijriCount}/{data.length} stored
+                      {previewCount > 0 && <> · <span className="text-amber-600">{diffCount} △ preview</span></>}
+                    </span>
                   </div>
                 </th>
-                <th className="px-1 py-2 text-center text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-[hsl(140_20%_88%)]">
-                  TZ
-                </th>
+                <th className="px-1 py-2 text-center text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-[hsl(140_20%_88%)]">TZ</th>
                 {PRAYERS.map((p) => (
                   <th key={p.key} className="py-2 text-center border-r border-[hsl(140_20%_88%)] last:border-r-0">
                     <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ background: p.color + '1a', color: p.color }}>
-                        {p.label}
-                      </span>
+                      <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ background: p.color + '1a', color: p.color }}>{p.label}</span>
                       {p.subLabel && <span className="text-[8px] text-muted-foreground/60 font-normal leading-none">{p.subLabel}</span>}
                     </div>
                   </th>
@@ -502,11 +531,12 @@ const PrayerTimesTable = ({
 
             <tbody>
               {data.map((row, idx) => {
-                const info       = getDayInfo(year, month, row.day, hijriOffset);
-                const hijriEntry = hijriCalendar.get(row.day);
-                const eidType    = detectEidType(hijriEntry?.hijri_date);
-                const eidCfg     = eidType ? EID_CONFIG[eidType] : null;
-                const isToday    = year === today.getFullYear() && month === today.getMonth() + 1 && row.day === today.getDate();
+                const info        = getDayInfo(year, month, row.day, hijriOffset);
+                const hijriEntry  = hijriCalendar.get(row.day);
+                const previewDate = previewHijri.get(row.day);
+                const eidType     = detectEidType(hijriEntry?.hijri_date);
+                const eidCfg      = eidType ? EID_CONFIG[eidType] : null;
+                const isToday     = year === today.getFullYear() && month === today.getMonth() + 1 && row.day === today.getDate();
                 const isHighlighted = highlightDay === row.day;
 
                 let rowStyle: React.CSSProperties = {};
@@ -524,17 +554,9 @@ const PrayerTimesTable = ({
                   rowStyle = { background: idx % 2 === 0 ? '#ffffff' : 'hsl(142 25% 98.5%)' };
                 }
 
-                // Eid day rows render in two rows: normal times + Eid jamaats full-width
                 return eidType && eidCfg ? (
                   <>
-                    <tr
-                      key={row.id}
-                      data-day={row.day}
-                      className="border-t border-[hsl(140_20%_90%)] cursor-pointer group"
-                      style={rowStyle}
-                      onClick={() => onEdit(row)}
-                    >
-                      {/* Date cell with Eid label */}
+                    <tr key={row.id} data-day={row.day} className="border-t border-[hsl(140_20%_90%)] cursor-pointer group" style={rowStyle} onClick={() => onEdit(row)}>
                       <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)]">
                         <div className="flex items-baseline gap-1.5">
                           <span className="font-extrabold text-base tabular-nums leading-none" style={{ color: eidCfg.color }}>{row.day}</span>
@@ -545,51 +567,34 @@ const PrayerTimesTable = ({
                           <span className="text-[8px] font-bold leading-none" style={{ color: eidCfg.color }}>{eidCfg.label}</span>
                         </div>
                       </td>
-                      <HijriCell hijriEntry={hijriEntry} />
+                      <HijriCell hijriEntry={hijriEntry} previewDate={previewDate} />
                       <td className="px-1 py-1.5 text-center border-r border-[hsl(140_20%_88%)]">
-                        <span className={`inline-block px-1 py-0.5 rounded text-[8px] font-bold tracking-wide ${info.isBST ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-                          {info.timezone}
-                        </span>
+                        <span className={`inline-block px-1 py-0.5 rounded text-[8px] font-bold tracking-wide ${info.isBST ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{info.timezone}</span>
                       </td>
-                      {PRAYERS.map((p) =>
-                        p.jamatKey ? (
-                          <StackedCell key={p.key} start={(row[p.startKey as keyof PrayerTime] as string | null) ?? null} jamat={(row[p.jamatKey as keyof PrayerTime] as string | null) ?? null} color={p.color} alwaysShowBoth />
-                        ) : (
-                          <SingleCell key={p.key} value={(row[p.startKey as keyof PrayerTime] as string | null) ?? null} color={p.color} />
-                        )
-                      )}
+                      {PRAYERS.map((p) => p.jamatKey ? (
+                        <StackedCell key={p.key} start={(row[p.startKey as keyof PrayerTime] as string | null) ?? null} jamat={(row[p.jamatKey as keyof PrayerTime] as string | null) ?? null} color={p.color} alwaysShowBoth />
+                      ) : (
+                        <SingleCell key={p.key} value={(row[p.startKey as keyof PrayerTime] as string | null) ?? null} color={p.color} />
+                      ))}
                       <td className="px-1 py-1.5 text-center">
-                        <button onClick={(e) => { e.stopPropagation(); onEdit(row); }} className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-[hsl(142_50%_93%)] transition-all" title="Edit">
+                        <button onClick={(e) => { e.stopPropagation(); onEdit(row); }} className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-[hsl(142_50%_93%)] transition-all">
                           <Pencil size={11} className="text-[hsl(142_60%_32%)]" />
                         </button>
                       </td>
                     </tr>
-                    {/* Eid jamaats row — full width */}
                     <tr key={`${row.id}-eid`} style={{ background: eidCfg.bg }}>
                       <td colSpan={PRAYERS.length + 4} className="px-4 pb-2 pt-0">
-                        <div
-                          className="flex items-center gap-2 flex-wrap rounded-lg px-3 py-2 border"
-                          style={{ borderColor: eidCfg.border }}
-                        >
+                        <div className="flex items-center gap-2 flex-wrap rounded-lg px-3 py-2 border" style={{ borderColor: eidCfg.border }}>
                           <Star size={12} style={{ color: eidCfg.color }} />
-                          <span className="text-[11px] font-bold" style={{ color: eidCfg.color }}>
-                            Eid Prayer Jamaats:
-                          </span>
-                          {eidPrayers.filter(e => e.eid_type === eidType && e.time).sort((a, b) => a.jamaat_number - b.jamaat_number).length === 0 ? (
+                          <span className="text-[11px] font-bold" style={{ color: eidCfg.color }}>Eid Prayer Jamaats:</span>
+                          {eidPrayers.filter(e => e.eid_type === eidType && e.time).length === 0 ? (
                             <span className="text-[10px] text-muted-foreground italic">No times set — click "Eid Times" to add</span>
                           ) : (
-                            eidPrayers
-                              .filter(e => e.eid_type === eidType && e.time)
-                              .sort((a, b) => a.jamaat_number - b.jamaat_number)
-                              .map(e => (
-                                <span
-                                  key={e.jamaat_number}
-                                  className="text-[12px] font-bold tabular-nums px-2.5 py-1 rounded-lg"
-                                  style={{ background: eidCfg.color + '15', color: eidCfg.color }}
-                                >
-                                  J{e.jamaat_number} · {e.time}
-                                </span>
-                              ))
+                            eidPrayers.filter(e => e.eid_type === eidType && e.time).sort((a, b) => a.jamaat_number - b.jamaat_number).map(e => (
+                              <span key={e.jamaat_number} className="text-[12px] font-bold tabular-nums px-2.5 py-1 rounded-lg" style={{ background: eidCfg.color + '15', color: eidCfg.color }}>
+                                J{e.jamaat_number} · {e.time}
+                              </span>
+                            ))
                           )}
                           <span className="ml-auto text-sm font-bold" style={{ color: eidCfg.color, fontFamily: 'serif' }} dir="rtl">{eidCfg.arabic}</span>
                         </div>
@@ -597,22 +602,11 @@ const PrayerTimesTable = ({
                     </tr>
                   </>
                 ) : (
-                  <tr
-                    key={row.id}
-                    data-day={row.day}
-                    className="border-t border-[hsl(140_20%_90%)] hover:brightness-[0.97] transition-all cursor-pointer group"
-                    style={rowStyle}
-                    onClick={() => onEdit(row)}
-                  >
-                    {/* Date */}
+                  <tr key={row.id} data-day={row.day} className="border-t border-[hsl(140_20%_90%)] hover:brightness-[0.97] transition-all cursor-pointer group" style={rowStyle} onClick={() => onEdit(row)}>
                     <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)]">
                       <div className="flex items-baseline gap-1.5">
-                        <span className={`font-extrabold text-base tabular-nums leading-none ${info.isFriday ? 'text-amber-600' : isToday ? 'text-blue-600' : 'text-[hsl(150_30%_12%)]'}`}>
-                          {row.day}
-                        </span>
-                        <span className={`text-[10px] font-semibold ${info.isFriday ? 'text-amber-500' : isToday ? 'text-blue-500' : 'text-muted-foreground'}`}>
-                          {info.shortName}
-                        </span>
+                        <span className={`font-extrabold text-base tabular-nums leading-none ${info.isFriday ? 'text-amber-600' : isToday ? 'text-blue-600' : 'text-[hsl(150_30%_12%)]'}`}>{row.day}</span>
+                        <span className={`text-[10px] font-semibold ${info.isFriday ? 'text-amber-500' : isToday ? 'text-blue-500' : 'text-muted-foreground'}`}>{info.shortName}</span>
                       </div>
                       <div className="flex flex-wrap items-center gap-1 mt-0.5">
                         {info.isFriday && <span className="text-[8px] font-bold text-amber-600 leading-none">Jumu'ah</span>}
@@ -620,22 +614,18 @@ const PrayerTimesTable = ({
                         {info.isClockChange && <span className="text-[8px] font-bold text-amber-700 leading-none">⚡ {info.clockChangeLabel}</span>}
                       </div>
                     </td>
-                    <HijriCell hijriEntry={hijriEntry} />
+                    <HijriCell hijriEntry={hijriEntry} previewDate={previewDate} />
                     <td className="px-1 py-1.5 text-center border-r border-[hsl(140_20%_88%)]">
-                      <span className={`inline-block px-1 py-0.5 rounded text-[8px] font-bold tracking-wide ${info.isBST ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-                        {info.timezone}
-                      </span>
+                      <span className={`inline-block px-1 py-0.5 rounded text-[8px] font-bold tracking-wide ${info.isBST ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{info.timezone}</span>
                       {info.isClockChange && <div className="text-[8px] text-amber-600 font-bold mt-0.5">⚡</div>}
                     </td>
-                    {PRAYERS.map((p) =>
-                      p.jamatKey ? (
-                        <StackedCell key={p.key} start={(row[p.startKey as keyof PrayerTime] as string | null) ?? null} jamat={(row[p.jamatKey as keyof PrayerTime] as string | null) ?? null} color={p.color} alwaysShowBoth />
-                      ) : (
-                        <SingleCell key={p.key} value={(row[p.startKey as keyof PrayerTime] as string | null) ?? null} color={p.color} />
-                      )
-                    )}
+                    {PRAYERS.map((p) => p.jamatKey ? (
+                      <StackedCell key={p.key} start={(row[p.startKey as keyof PrayerTime] as string | null) ?? null} jamat={(row[p.jamatKey as keyof PrayerTime] as string | null) ?? null} color={p.color} alwaysShowBoth />
+                    ) : (
+                      <SingleCell key={p.key} value={(row[p.startKey as keyof PrayerTime] as string | null) ?? null} color={p.color} />
+                    ))}
                     <td className="px-1 py-1.5 text-center">
-                      <button onClick={(e) => { e.stopPropagation(); onEdit(row); }} className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-[hsl(142_50%_93%)] transition-all" title="Edit">
+                      <button onClick={(e) => { e.stopPropagation(); onEdit(row); }} className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-[hsl(142_50%_93%)] transition-all">
                         <Pencil size={11} className="text-[hsl(142_60%_32%)]" />
                       </button>
                     </td>

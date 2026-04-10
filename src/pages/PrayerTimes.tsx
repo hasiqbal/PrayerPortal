@@ -137,6 +137,10 @@ async function ensureHijriCalendarSchema(): Promise<{ ok: boolean; message: stri
 
 // ─── Aladhan API — accurate Hijri dates, API only ─────────────────────────────
 
+/**
+ * Fetch a SINGLE day's Hijri date (used for EditPrayerTimeModal).
+ * Uses gToH endpoint + day-shift trick for offset.
+ */
 async function fetchHijriFromApi(
   year: number,
   month: number,
@@ -156,8 +160,6 @@ async function fetchHijriFromApi(
   const h = json?.data?.hijri;
   if (!h) throw new Error('Aladhan API: unexpected response structure');
 
-  // Always return the ORIGINAL Gregorian date (not the shifted one).
-  // The offset only affects which Hijri date is fetched from the API.
   const origDay   = String(day).padStart(2, '0');
   const origMonth = String(month).padStart(2, '0');
 
@@ -165,6 +167,38 @@ async function fetchHijriFromApi(
     hijri:     `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
     gregorian: `${year}-${origMonth}-${origDay}`,
   };
+}
+
+/**
+ * Fetch ALL days in a month from Aladhan's gToHCalendar endpoint.
+ * Uses `adjustment` param for offset — 1 API call per month instead of 1 per day.
+ * Returns Map<day, { hijri, gregorian }>.
+ */
+async function fetchHijriMonthFromApi(
+  year: number,
+  month: number,
+  offset = 0,
+): Promise<Map<number, { hijri: string; gregorian: string }>> {
+  const url = `https://api.aladhan.com/v1/gToHCalendar/${month}/${year}${offset !== 0 ? `?adjustment=${offset}` : ''}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Aladhan API ${res.status}: ${res.statusText}`);
+  const json = await res.json();
+  if (!Array.isArray(json?.data)) throw new Error('Aladhan calendar API: unexpected response');
+
+  const map = new Map<number, { hijri: string; gregorian: string }>();
+  for (const entry of json.data) {
+    const gDay = parseInt(entry?.gregorian?.day ?? '0', 10);
+    const h    = entry?.hijri;
+    if (!gDay || !h) continue;
+    const origDay   = String(gDay).padStart(2, '0');
+    const origMonth = String(month).padStart(2, '0');
+    map.set(gDay, {
+      hijri:     `${parseInt(h.day, 10)} ${h.month?.en ?? ''} ${h.year} AH`,
+      gregorian: `${year}-${origMonth}-${origDay}`,
+    });
+  }
+  console.log(`[Aladhan Calendar ✓] ${year}-${month} offset=${offset}: ${map.size} days`);
+  return map;
 }
 
 // ─── Hijri Calendar DB helpers ────────────────────────────────────────────────
@@ -500,6 +534,10 @@ const PrayerTimes = () => {
   const [schemaChecked,   setSchemaChecked]   = useState(false);
   const [eidModal,        setEidModal]        = useState(false);
   const [eidPrayers,      setEidPrayers]      = useState<EidPrayer[]>([]);
+  // Hijri preview: offset preview without writing to DB
+  const [previewHijri,    setPreviewHijri]    = useState<Map<number, string>>(new Map());
+  const [previewLoading,  setPreviewLoading]  = useState(false);
+  const [previewOffset,   setPreviewOffset]   = useState<number | null>(null);
 
   // Hijri calendar data: day → entry
   const [hijriCalendar, setHijriCalendar] = useState<Map<number, HijriCalendarEntry>>(new Map());
@@ -550,6 +588,29 @@ const PrayerTimes = () => {
   useEffect(() => {
     fetchEidPrayers().then(setEidPrayers);
   }, []);
+
+  // ── Preview: fetch current month Hijri with current offset (no DB write) ──
+  const handlePreviewHijri = async () => {
+    setPreviewLoading(true);
+    setPreviewHijri(new Map());
+    try {
+      const monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, hijriOffset);
+      const preview = new Map<number, string>();
+      monthMap.forEach(({ hijri }, day) => preview.set(day, hijri));
+      setPreviewHijri(preview);
+      setPreviewOffset(hijriOffset);
+      toast.success(`Preview ready — ${preview.size} days with offset ${hijriOffset > 0 ? '+' : ''}${hijriOffset}. Click "Fill Month" to save to DB.`);
+    } catch (e) {
+      toast.error(`Preview failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const clearPreview = () => {
+    setPreviewHijri(new Map());
+    setPreviewOffset(null);
+  };
 
   const changeOffset = (delta: number) => {
     setHijriOffset((prev) => {
@@ -633,6 +694,7 @@ const PrayerTimes = () => {
   };
 
   // ── Fill Missing Only: Aladhan API → skips days already in hijri_calendar ─
+  // Uses monthly calendar endpoint (12 calls/year) for speed
   const handleFillMissingOnly = async () => {
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
     setPopulatingMissing(true);
@@ -680,33 +742,44 @@ const PrayerTimes = () => {
       { id: toastId },
     );
 
-    // Step 3: Fetch only missing days from Aladhan API
+    // Step 3: Fetch only missing days using monthly calendar API (batch by month)
     const newEntries: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[] = [];
     const apiFailed: string[] = [];
 
-    for (let i = 0; i < missingDays.length; i++) {
-      const { month, day } = missingDays[i];
+    // Group missing days by month for batch fetching
+    const byMonth = new Map<number, number[]>();
+    for (const { month, day } of missingDays) {
+      if (!byMonth.has(month)) byMonth.set(month, []);
+      byMonth.get(month)!.push(day);
+    }
+
+    let processedMonths = 0;
+    for (const [month, days] of Array.from(byMonth.entries()).sort((a, b) => a[0] - b[0])) {
       const monthName = MONTHS_SHORT[month - 1];
-      setAllMonthsProgress(`${monthName} ${day} (${i + 1}/${missingDays.length})`);
+      setAllMonthsProgress(`${monthName} (${processedMonths + 1}/${byMonth.size} months)`);
+      toast.loading(`Fetching ${monthName} — ${days.length} missing days…`, { id: toastId });
       try {
-        const result = await fetchHijriFromApi(selectedYear, month, day, hijriOffset);
-        newEntries.push({
-          gregorian_year:  selectedYear,
-          gregorian_month: month,
-          gregorian_day:   day,
-          gregorian_date:  result.gregorian,
-          hijri_date:      result.hijri,
-        });
-        console.log(`[Aladhan ✓] ${monthName} ${day}: ${result.gregorian} → ${result.hijri}`);
+        const monthMap = await fetchHijriMonthFromApi(selectedYear, month, hijriOffset);
+        for (const day of days) {
+          const result = monthMap.get(day);
+          if (result) {
+            newEntries.push({
+              gregorian_year:  selectedYear,
+              gregorian_month: month,
+              gregorian_day:   day,
+              gregorian_date:  result.gregorian,
+              hijri_date:      result.hijri,
+            });
+          } else {
+            apiFailed.push(`${monthName} ${day}`);
+          }
+        }
       } catch (e) {
-        apiFailed.push(`${monthName} ${day}`);
-        console.error(`[Aladhan ✗] ${monthName} ${day}:`, e);
+        days.forEach(d => apiFailed.push(`${monthName} ${d}`));
+        console.error(`[Aladhan ✗] ${monthName}:`, e);
       }
-      toast.loading(
-        `Fetching missing: ${i + 1}/${missingDays.length} · ${monthName} ${day}`,
-        { id: toastId },
-      );
-      if (i < missingDays.length - 1) await new Promise((r) => setTimeout(r, 120));
+      processedMonths++;
+      if (processedMonths < byMonth.size) await new Promise((r) => setTimeout(r, 200));
     }
 
     if (newEntries.length === 0) {
@@ -753,47 +826,45 @@ const PrayerTimes = () => {
   };
 
   // ── Fill All 12 Months: Aladhan API → hijri_calendar table ───────────────
+  // Uses gToHCalendar (1 call/month = 12 calls total instead of 365)
   const handlePopulateAllMonths = async () => {
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
     setPopulatingAllMonths(true);
     const toastId = 'fill-all-hijri';
 
-    let totalDays = 0;
-    for (let m = 1; m <= 12; m++) totalDays += new Date(selectedYear, m, 0).getDate();
-
-    toast.loading(`Starting: fetching ${totalDays} days for ${selectedYear}…`, { id: toastId });
+    toast.loading(`Fetching all 12 months for ${selectedYear} (offset ${hijriOffset > 0 ? '+' : ''}${hijriOffset})…`, { id: toastId });
 
     const allEntries: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[] = [];
     const apiFailed: string[] = [];
-    let processed = 0;
 
     for (let month = 1; month <= 12; month++) {
       const monthName = MONTHS_SHORT[month - 1];
       const lastDay = new Date(selectedYear, month, 0).getDate();
-
-      for (let day = 1; day <= lastDay; day++) {
-        setAllMonthsProgress(`${monthName} ${day}/${lastDay}`);
-        try {
-          const result = await fetchHijriFromApi(selectedYear, month, day, hijriOffset);
-          allEntries.push({
-            gregorian_year:  selectedYear,
-            gregorian_month: month,
-            gregorian_day:   day,
-            gregorian_date:  result.gregorian,
-            hijri_date:      result.hijri,
-          });
-          console.log(`[Aladhan ✓] ${monthName} ${day}: ${result.gregorian} → ${result.hijri}`);
-        } catch (e) {
-          apiFailed.push(`${monthName} ${day}`);
-          console.error(`[Aladhan ✗] ${monthName} ${day}:`, e);
+      setAllMonthsProgress(`${monthName} (${month}/12)`);
+      toast.loading(`Fetching ${monthName} ${selectedYear}… (${month}/12)`, { id: toastId });
+      try {
+        const monthMap = await fetchHijriMonthFromApi(selectedYear, month, hijriOffset);
+        for (let day = 1; day <= lastDay; day++) {
+          const result = monthMap.get(day);
+          if (result) {
+            allEntries.push({
+              gregorian_year:  selectedYear,
+              gregorian_month: month,
+              gregorian_day:   day,
+              gregorian_date:  result.gregorian,
+              hijri_date:      result.hijri,
+            });
+          } else {
+            apiFailed.push(`${monthName} ${day}`);
+          }
         }
-        processed++;
-        toast.loading(
-          `Aladhan API: ${processed}/${totalDays} days · ${monthName} ${day}/${lastDay}`,
-          { id: toastId },
-        );
-        await new Promise((r) => setTimeout(r, 120));
+      } catch (e) {
+        // fall back to per-day on API error for this month
+        console.error(`[Aladhan Calendar ✗] ${monthName}:`, e);
+        apiFailed.push(`${monthName} (whole month)`);
       }
+      // Small pause between months to avoid rate limiting
+      if (month < 12) await new Promise((r) => setTimeout(r, 200));
     }
 
     if (apiFailed.length > 0) {
@@ -825,21 +896,32 @@ const PrayerTimes = () => {
     setPopulatingAllMonths(false);
   };
 
-  // ── Fill Dates: Aladhan API → hijri_calendar table ───────────────────────
+  // ── Fill Dates: Aladhan API → hijri_calendar table (single month, batch call) ─
   const handlePopulateHijriDates = async () => {
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
     if (!data || data.length === 0) { toast.error('No prayer times loaded for this month.'); return; }
     setPopulatingHijri(true);
+    clearPreview();
     const toastId = 'fill-hijri';
+    const monthName = MONTHS_FULL[selectedMonth - 1];
 
-    toast.loading(`Fetching dates from Aladhan API… (0 / ${data.length})`, { id: toastId });
+    toast.loading(`Fetching ${monthName} from Aladhan API…`, { id: toastId });
+
+    let monthMap: Map<number, { hijri: string; gregorian: string }>;
+    try {
+      monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, hijriOffset);
+    } catch (e) {
+      toast.error(`Aladhan API failed: ${e instanceof Error ? e.message : String(e)}`, { id: toastId, duration: 7000 });
+      setPopulatingHijri(false);
+      return;
+    }
+
     const resolved: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[] = [];
     const apiFailed: number[] = [];
 
-    for (let i = 0; i < data.length; i++) {
-      const row = data[i];
-      try {
-        const result = await fetchHijriFromApi(selectedYear, selectedMonth, row.day, hijriOffset);
+    for (const row of data) {
+      const result = monthMap.get(row.day);
+      if (result) {
         resolved.push({
           gregorian_year:  selectedYear,
           gregorian_month: selectedMonth,
@@ -847,25 +929,16 @@ const PrayerTimes = () => {
           gregorian_date:  result.gregorian,
           hijri_date:      result.hijri,
         });
-        console.log(`[Aladhan ✓] Day ${row.day}: ${result.gregorian} → ${result.hijri}`);
-      } catch (e) {
+      } else {
         apiFailed.push(row.day);
-        console.error(`[Aladhan ✗] Day ${row.day}:`, e);
       }
-      toast.loading(`Fetching dates from Aladhan API… (${i + 1} / ${data.length})`, { id: toastId });
-      if (i < data.length - 1) await new Promise((r) => setTimeout(r, 120));
     }
 
     if (apiFailed.length > 0) {
-      toast.error(
-        `Aladhan API failed for ${apiFailed.length} day(s): ${apiFailed.join(', ')}. Please retry.`,
-        { id: toastId, duration: 7000 },
-      );
-      setPopulatingHijri(false);
-      return;
+      toast.warning(`Missing ${apiFailed.length} days from API: ${apiFailed.join(', ')}`, { id: toastId, duration: 5000 });
     }
 
-    toast.loading(`Saving ${resolved.length} dates to hijri_calendar table…`, { id: toastId });
+    toast.loading(`Saving ${resolved.length} dates to hijri_calendar…`, { id: toastId });
     const { saved, errors } = await upsertHijriCalendarEntries(resolved);
 
     if (errors.length > 0) {
@@ -876,7 +949,7 @@ const PrayerTimes = () => {
         toast.error(`${errors.length} DB write(s) failed: ${errors[0]}`, { id: toastId, duration: 8000 });
       }
     } else {
-      toast.success(`✓ ${saved} days saved to hijri_calendar`, { id: toastId, duration: 4000 });
+      toast.success(`✓ ${saved} days saved to hijri_calendar for ${monthName}`, { id: toastId, duration: 4000 });
       const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
       setHijriCalendar(updated);
       setLoadedOffset(hijriOffset);
@@ -1017,6 +1090,25 @@ const PrayerTimes = () => {
                 title={`Manage Eid al-Fitr and Eid al-Adha prayer times for ${selectedYear}`}
               >
                 <Star size={14} /> Eid Times
+              </Button>
+
+              {/* Preview button */}
+              <Button
+                variant="outline" size="sm"
+                onClick={previewHijri.size > 0 ? clearPreview : handlePreviewHijri}
+                disabled={previewLoading || populatingHijri || populatingAllMonths}
+                className={`gap-2 ${
+                  previewHijri.size > 0
+                    ? 'border-[#7c3aed] bg-[hsl(270_50%_97%)] text-[#7c3aed] font-semibold'
+                    : 'border-[hsl(270_40%_80%)] text-[#7c3aed] hover:bg-[hsl(270_50%_97%)]'
+                }`}
+                title={previewHijri.size > 0 ? 'Clear preview' : `Preview Hijri dates with current offset (no DB write)`}
+              >
+                {previewLoading
+                  ? <><Loader2 size={14} className="animate-spin" />Previewing…</>
+                  : previewHijri.size > 0
+                    ? <>👁 Clear Preview</>
+                    : <>👁 Preview Offset</>}
               </Button>
 
               {/* Offset-changed warning */}
@@ -1164,11 +1256,23 @@ const PrayerTimes = () => {
           )}
           {!isLoading && !isError && data && (
             <>
+              {/* Preview banner */}
+              {previewHijri.size > 0 && (
+                <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl border border-[#7c3aed]/30 bg-[hsl(270_50%_97%)]">
+                  <span className="text-sm">👁</span>
+                  <span className="text-xs font-semibold text-[#7c3aed]">
+                    Previewing {previewHijri.size} days with offset {previewOffset !== null && previewOffset >= 0 ? '+' : ''}{previewOffset} — dashed purple = preview, solid = stored in DB
+                  </span>
+                  <button onClick={clearPreview} className="ml-auto text-[10px] font-medium text-[#7c3aed]/60 hover:text-[#7c3aed] transition-colors">✕ Clear</button>
+                </div>
+              )}
+
               <PrayerTimesTable
                 data={data}
                 year={selectedYear}
                 hijriOffset={hijriOffset}
                 hijriCalendar={hijriCalendar}
+                previewHijri={previewHijri}
                 eidPrayers={eidPrayers}
                 onEdit={setEditingRow}
                 highlightDay={highlightDay}
